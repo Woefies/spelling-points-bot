@@ -5,6 +5,7 @@ __pycache__/
 .env
 data/*.db
 data/*.sqlite*
+data/*.csv
 !data/.gitkeep
 
 # local Claude Code settings
