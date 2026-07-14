@@ -43,6 +43,8 @@ Three swap points, each backed by an interface/registry. Adding a feature = drop
 
 `scores` (guild_id, user_id, mistakes — upserted), `whitelist` (guild_id, word — per-guild ignored words), `issues_log` (append-only audit of every flagged word with lang/kind/timestamp). Tables auto-created on repo init.
 
+`scripts/report_flagged.py` reads this table offline to surface the most-frequently flagged words as default-whitelist candidates (stdlib only, no bot import).
+
 ## Conventions
 
 - Config flows one way: `.env` → `load_settings()` → `Settings` dataclass → `bot.settings`. Read config off `bot.settings`, never `os.getenv` outside `core/config.py`.

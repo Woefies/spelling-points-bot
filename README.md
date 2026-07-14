@@ -36,6 +36,8 @@ services/
 repositories/
   base.py                           # storage interface (points, whitelist, etc.)
   sqlite_repo.py                    # SQLite implementation
+scripts/
+  report_flagged.py                 # offline report: most-flagged words, whitelist candidates
 data/                               # SQLite DB lives here (gitignored, dir tracked via .gitkeep)
 requirements.txt
 .env.example
@@ -102,6 +104,20 @@ Set these in `.env` (see `.env.example`):
 | `REPLY_ON_MISTAKE` | `true` | Whether the bot replies in-channel when it finds a mistake, vs. silently tallying. |
 | `POINTS_PER_MISTAKE` | `1` | Points awarded per detected mistake. |
 | `DB_PATH` | `data/points.db` | Path to the SQLite database file. |
+
+## Reviewing flagged words (whitelist candidates)
+
+Every flagged word is logged to the `issues_log` table in SQLite. To see which words get flagged most often — good candidates for the default whitelist — run the offline report:
+
+```bash
+python scripts/report_flagged.py                          # top 30 flagged words, all servers
+python scripts/report_flagged.py --min-hits 3 --lang nl   # Dutch words flagged 3+ times
+python scripts/report_flagged.py --csv data/flagged.csv   # dump the full list to CSV
+```
+
+Flags: `--limit N` (rows shown, default 30), `--min-hits N` (minimum flag count), `--lang en|nl` (filter by language), `--csv PATH` (write full result to CSV). The report reads `DB_PATH` (default `data/points.db`).
+
+The `NOTE` column marks words already in the default whitelist so you can skip them. When you spot a legitimate word (slang, a name, a loanword) that keeps getting flagged, either whitelist it per-server with `/whitelist add <word>`, or — to cover every server — add it to the default set in `core/config.py` (`Settings.whitelist`).
 
 ## Notes & limitations
 
