@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Auto-bump the patch number in VERSION on every commit, so a code change always
+# produces a version change (keeps the /version drift-check against GitHub honest).
+# If VERSION is already staged in this commit (you bumped it manually, e.g. a
+# minor/major release), the manual value is respected and left untouched.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+VERSION_FILE="$ROOT/VERSION"
+
+# Nothing staged at all → nothing to bump.
+if git diff --cached --quiet; then
+    exit 0
+fi
+
+# VERSION already part of this commit → respect the manual bump.
+if git diff --cached --name-only | grep -qx "VERSION"; then
+    exit 0
+fi
+
+if [ ! -f "$VERSION_FILE" ]; then
+    echo "pre-commit: VERSION file missing, skipping auto-bump" >&2
+    exit 0
+fi
+
+cur="$(tr -d '[:space:]' < "$VERSION_FILE")"
+IFS='.' read -r major minor patch <<< "$cur"
+if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ ]]; then
+    echo "pre-commit: VERSION '$cur' is not semver (X.Y.Z), skipping auto-bump" >&2
+    exit 0
+fi
+
+new="${major}.${minor}.$((patch + 1))"
+printf '%s\n' "$new" > "$VERSION_FILE"
+git add "$VERSION_FILE"
+echo "pre-commit: VERSION bumped ${cur} -> ${new}"

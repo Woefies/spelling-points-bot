@@ -20,6 +20,7 @@ To add a new feature entirely, drop a new cog in `cogs/`.
 
 ```
 bot.py                              # entrypoint — loads config, builds bot, loads cogs, runs
+VERSION                             # single-line version string, baked into the Docker image
 core/
   config.py                         # env/config loading (.env via python-dotenv)
   bot.py                            # Bot subclass, cog auto-loading, intents setup
@@ -27,6 +28,7 @@ cogs/
   spelling.py                       # on_message spell-check flow, awards points
   scores.py                         # /score, /leaderboard commands
   admin.py                          # /whitelist add|remove and other mod commands
+  version.py                        # /version — reports running version, checks GitHub
 services/
   cleaner.py                        # message text normalization/cleaning before checking
   detector.py                       # language detection (langdetect wrapper)
@@ -38,6 +40,8 @@ repositories/
   sqlite_repo.py                    # SQLite implementation
 scripts/
   report_flagged.py                 # offline report: most-flagged words, whitelist candidates
+  check_version.sh                  # compares running container's VERSION against GitHub
+  hooks/pre-commit                  # auto-bumps VERSION on commit (enable: git config core.hooksPath scripts/hooks)
 data/                               # SQLite DB lives here (gitignored, dir tracked via .gitkeep)
 requirements.txt
 .env.example
@@ -118,6 +122,29 @@ python scripts/report_flagged.py --csv data/flagged.csv   # dump the full list t
 Flags: `--limit N` (rows shown, default 30), `--min-hits N` (minimum flag count), `--lang en|nl` (filter by language), `--csv PATH` (write full result to CSV). The report reads `DB_PATH` (default `data/points.db`).
 
 The `NOTE` column marks words already in the default whitelist so you can skip them. When you spot a legitimate word (slang, a name, a loanword) that keeps getting flagged, either whitelist it per-server with `/whitelist add <word>`, or — to cover every server — add it to the default set in `core/config.py` (`Settings.whitelist`).
+
+## Checking you're on the latest version
+
+The repo tracks a `VERSION` file. The running bot exposes it, so you can confirm your deployment matches GitHub.
+
+- **In Discord:** run `/version` (or `!version`). It replies with the running version and whether GitHub has a newer one.
+- **On the NAS / server:** run the shell check (reads the *running container's* baked version, so it stays accurate even if you pulled code but haven't rebuilt yet):
+  ```bash
+  ./scripts/check_version.sh
+  ```
+  Exit code `0` = up to date, `1` = a newer version is on GitHub (or it couldn't check).
+
+> **Maintainer note:** this only detects drift if you **bump the `VERSION` file before every push**. If you push code without bumping `VERSION`, both sides read the same string and the check reports "up to date" even though the code changed. Treat bumping `VERSION` as part of every release.
+
+### Auto-bumping VERSION
+
+A git `pre-commit` hook auto-increments the patch number in `VERSION` on every commit, so you never forget. Enable it once per clone:
+
+```bash
+git config core.hooksPath scripts/hooks
+```
+
+Now each commit bumps `VERSION` (e.g. `0.1.0` → `0.1.1`) and re-stages it automatically. To cut a minor/major release instead, edit `VERSION` yourself and stage it — the hook detects a manual bump and leaves it alone.
 
 ## Notes & limitations
 

@@ -50,3 +50,10 @@ Three swap points, each backed by an interface/registry. Adding a feature = drop
 - Config flows one way: `.env` → `load_settings()` → `Settings` dataclass → `bot.settings`. Read config off `bot.settings`, never `os.getenv` outside `core/config.py`.
 - `Settings.whitelist` is a hardcoded default set merged with the DB whitelist at check time — global-ish defaults live in config, per-guild additions in DB.
 - Cogs reach shared state via `self.bot.settings` and `self.bot.repo`.
+
+## Versioning
+
+- Root `VERSION` file is the single source of truth, baked into the Docker image via `COPY . .` and read at startup by `core/config.py:_read_version()` into `Settings.version`.
+- `/version` cog (`cogs/version.py`) and `scripts/check_version.sh` compare it against `https://raw.githubusercontent.com/<repo>/<branch>/VERSION` (repo/branch overridable via `GITHUB_REPO` / `GITHUB_BRANCH`). Comparison is string equality only.
+- **Bump `VERSION` before every push** — the drift check is only meaningful if the file changes when the code does.
+- A `pre-commit` hook at `scripts/hooks/pre-commit` auto-bumps the `VERSION` patch on every commit (enable with `git config core.hooksPath scripts/hooks`); a manually staged `VERSION` change is respected instead.
