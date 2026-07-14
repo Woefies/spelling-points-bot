@@ -1,0 +1,9 @@
+services:
+  spellbot:
+    build: .
+    container_name: spellbot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Persist SQLite points DB across restarts/rebuilds
+      - ./data:/app/data

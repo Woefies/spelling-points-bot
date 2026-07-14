@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+data/*.db
+data/*.sqlite*
+!data/.gitkeep
+
+# local Claude Code settings
+.claude/settings.local.json
