@@ -86,7 +86,7 @@ class TriggersCog(commands.Cog):
                 "ℹ️ De PK-triggers staan er al. Bekijk ze met `/trigger list`.", ephemeral=True
             )
             return
-        await interaction.response.send_message(f"✅ {created} trigger(s) aangemaakt.")
+        await interaction.response.send_message(f"✅ {created} trigger(s) aangemaakt.", ephemeral=True)
 
     @trigger.command(name="add", description="Laat de bot op een woord reageren met een tekst, emoji of allebei")
     @app_commands.describe(
@@ -110,7 +110,8 @@ class TriggersCog(commands.Cog):
 
         trigger_id = self.bot.repo.add_trigger(interaction.guild_id, woorden, antwoord, reacties)
         await interaction.response.send_message(
-            f"✅ Trigger **#{trigger_id}** aangemaakt op: `{woorden}`"
+            f"✅ Trigger **#{trigger_id}** aangemaakt op: `{woorden}`",
+            ephemeral=True,
         )
 
     @trigger.command(name="list", description="Toon alle triggers met hun ID, woorden en reacties")
@@ -118,7 +119,8 @@ class TriggersCog(commands.Cog):
         rows = self.bot.repo.list_triggers(interaction.guild_id)
         if not rows:
             await interaction.response.send_message(
-                "Er zijn nog geen triggers. Gebruik `/trigger preset` of `/trigger add`."
+                "Er zijn nog geen triggers. Gebruik `/trigger preset` of `/trigger add`.",
+                ephemeral=True,
             )
             return
 
@@ -133,13 +135,13 @@ class TriggersCog(commands.Cog):
                 parts.append(f"{count} antwoordvariant(en)")
             lines.append(" · ".join(parts))
         embed.description = "\n".join(lines)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @trigger.command(name="remove", description="Verwijder een trigger aan de hand van het ID uit /trigger list")
     @app_commands.describe(id="Het nummer uit /trigger list, bijv. 3")
     async def remove_cmd(self, interaction: discord.Interaction, id: int) -> None:
         if self.bot.repo.remove_trigger(interaction.guild_id, id):
-            await interaction.response.send_message(f"🗑️ Trigger **#{id}** verwijderd.")
+            await interaction.response.send_message(f"🗑️ Trigger **#{id}** verwijderd.", ephemeral=True)
         else:
             await interaction.response.send_message(
                 f"🚫 Geen trigger gevonden met ID **{id}**.", ephemeral=True

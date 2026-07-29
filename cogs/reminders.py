@@ -192,11 +192,13 @@ class RemindersCog(commands.Cog):
 
         if created:
             await interaction.response.send_message(
-                f"✅ Standaard-reminders aangemaakt in {kanaal.mention}:\n" + "\n".join(f"• {c}" for c in created)
+                f"✅ Standaard-reminders aangemaakt in {kanaal.mention}:\n" + "\n".join(f"• {c}" for c in created),
+                ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                "ℹ️ De standaard-reminders bestaan al. Gebruik `/reminder list` om ze te bekijken."
+                "ℹ️ De standaard-reminders bestaan al. Gebruik `/reminder list` om ze te bekijken.",
+                ephemeral=True,
             )
 
     @reminder.command(
@@ -227,7 +229,8 @@ class RemindersCog(commands.Cog):
         summary = "\n".join(f"• {c}" for c in created)
         tail = f"\n\n_{skipped} bestonden al en zijn overgeslagen._" if skipped else ""
         await interaction.response.send_message(
-            f"✅ {len(created)} reminder(s) aangemaakt in {kanaal.mention}:\n{summary}{tail}"
+            f"✅ {len(created)} reminder(s) aangemaakt in {kanaal.mention}:\n{summary}{tail}",
+            ephemeral=True,
         )
 
     @reminder.command(name="add", description="Maak een eigen herinnering, eenmalig of terugkerend op een of meer vaste tijden")
@@ -317,7 +320,8 @@ class RemindersCog(commands.Cog):
         await interaction.response.send_message(
             f"✅ Herinnering **#{reminder_id}** aangemaakt: {self._describe(freq, day, date)} "
             f"om **{_format_times(time)}** "
-            f"in {target.mention} — \"{bericht}\""
+            f"in {target.mention} — \"{bericht}\"",
+            ephemeral=True,
         )
 
     @reminder.command(name="edit", description="Pas tekst, tijd, kanaal of mention aan zonder de herinnering opnieuw te maken")
@@ -383,14 +387,15 @@ class RemindersCog(commands.Cog):
         await interaction.response.send_message(
             f"✏️ Herinnering **#{id}** aangepast: "
             f"{self._describe(updated.frequency, updated.day, updated.date)} om "
-            f"**{_format_times(updated.time)}** in {where} — \"{updated.message}\""
+            f"**{_format_times(updated.time)}** in {where} — \"{updated.message}\"",
+            ephemeral=True,
         )
 
     @reminder.command(name="list", description="Toon alle herinneringen met hun ID, tijden en kanaal")
     async def list_cmd(self, interaction: discord.Interaction) -> None:
         rows = self.reminders.list_for_guild(interaction.guild_id)
         if not rows:
-            await interaction.response.send_message("Er zijn nog geen herinneringen. Gebruik `/reminder setup` of `/reminder add`.")
+            await interaction.response.send_message("Er zijn nog geen herinneringen. Gebruik `/reminder setup` of `/reminder add`.", ephemeral=True)
             return
 
         embed = discord.Embed(title="⏰ Herinneringen", color=discord.Color.blurple())
@@ -405,13 +410,13 @@ class RemindersCog(commands.Cog):
                 f"in {channel_name}{ping}\n> {rem.message}"
             )
         embed.description = "\n\n".join(lines)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @reminder.command(name="remove", description="Verwijder een herinnering aan de hand van het ID uit /reminder list")
     @app_commands.describe(id="Het nummer uit /reminder list, bijv. 8")
     async def remove_cmd(self, interaction: discord.Interaction, id: int) -> None:
         if self.reminders.remove(interaction.guild_id, id):
-            await interaction.response.send_message(f"🗑️ Herinnering **#{id}** verwijderd.")
+            await interaction.response.send_message(f"🗑️ Herinnering **#{id}** verwijderd.", ephemeral=True)
         else:
             await interaction.response.send_message(f"🚫 Geen herinnering gevonden met ID **{id}**.", ephemeral=True)
 

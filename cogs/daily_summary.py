@@ -132,14 +132,15 @@ class DailySummaryCog(commands.Cog):
         self.bot.repo.set_config(interaction.guild_id, CONFIG_CHANNEL, str(kanaal.id))
         self.bot.repo.set_config(interaction.guild_id, CONFIG_TIME, when)
         await interaction.response.send_message(
-            f"✅ Dagoverzicht staat aan: elke werkdag om **{when}** in {kanaal.mention}."
+            f"✅ Dagoverzicht staat aan: elke werkdag om **{when}** in {kanaal.mention}.",
+            ephemeral=True,
         )
 
     @dagoverzicht.command(name="uit", description="Zet het dagoverzicht uit. De punten blijven gewoon geteld worden")
     async def disable_cmd(self, interaction: discord.Interaction) -> None:
         self.bot.repo.set_config(interaction.guild_id, CONFIG_CHANNEL, None)
         self.bot.repo.set_config(interaction.guild_id, CONFIG_TIME, None)
-        await interaction.response.send_message("🛑 Dagoverzicht staat uit.")
+        await interaction.response.send_message("🛑 Dagoverzicht staat uit.", ephemeral=True)
 
     @dagoverzicht.command(name="nu", description="Toon nu het overzicht van vandaag, zonder te wachten tot het eind van de dag")
     async def now_cmd(self, interaction: discord.Interaction) -> None:
