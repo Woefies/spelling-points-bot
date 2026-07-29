@@ -16,10 +16,29 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from services.variants import pick_variant
+
 TZ = ZoneInfo("Europe/Amsterdam")
 
 DEFAULT_HOURS_MESSAGE = "⏰ Check je uren!"
 DEFAULT_PAYDAY_MESSAGE = "💰 Het is payday!"
+
+_FIRST_OF_MONTH_MESSAGE = (
+    "Het is de eerste van de maand jongens, checkt iedereen de uurtjes weer?"
+    " | Denkt iedereen aan de uurtjes? 1ste van de maand!"
+)
+
+# The fixed PK set, seeded by /reminder preset: (message, time, frequency, day, mention).
+# Only the ones that need action ping @everyone — a daily morning ping gets ignored fast.
+PK_PRESET: list[tuple[str, str, str, int | None, str]] = [
+    ("Goede….MORGEN..Team...Minigames!", "09:00", "weekdays", None, "none"),
+    ("Jongens allemaal naar paars!", "09:30", "weekdays", None, "none"),
+    *[
+        (_FIRST_OF_MONTH_MESSAGE, t, "monthly", 1, "everyone")
+        for t in ("09:00", "11:00", "13:00", "15:00", "17:00")
+    ],
+    ("💰 Salaris komt er aan!", "09:00", "monthly", 24, "everyone"),
+]
 
 MENTION_PREFIX = {
     "everyone": "@everyone ",
@@ -81,6 +100,8 @@ class RemindersCog(commands.Cog):
             due = False
             if rem.frequency == "daily":
                 due = True
+            elif rem.frequency == "weekdays":
+                due = now.weekday() < 5  # Mon-Fri
             elif rem.frequency == "weekly":
                 due = rem.day == now.weekday()
             elif rem.frequency == "monthly":
@@ -96,7 +117,7 @@ class RemindersCog(commands.Cog):
                 prefix = MENTION_PREFIX.get(rem.mention, "")
                 try:
                     await channel.send(
-                        f"{prefix}{rem.message}",
+                        f"{prefix}{pick_variant(rem.message)}",
                         allowed_mentions=discord.AllowedMentions(everyone=True),
                     )
                 except discord.HTTPException:
@@ -148,9 +169,40 @@ class RemindersCog(commands.Cog):
                 "ℹ️ De standaard-reminders bestaan al. Gebruik `/reminder list` om ze te bekijken."
             )
 
+    @reminder.command(
+        name="preset",
+        description="Maak de vaste PK-reminders aan (minigames, paars, uren 1e v/d maand, salaris)",
+    )
+    @app_commands.describe(kanaal="Kanaal waar deze reminders in geplaatst worden")
+    async def preset_cmd(self, interaction: discord.Interaction, kanaal: discord.TextChannel) -> None:
+        created = []
+        skipped = 0
+
+        for message, time, frequency, day, mention in PK_PRESET:
+            if self.reminders.exists_similar(interaction.guild_id, message, time, frequency):
+                skipped += 1
+                continue
+            self.reminders.add(
+                interaction.guild_id, kanaal.id, message, time, frequency,
+                day=day, mention=mention,
+            )
+            created.append(f"{self._describe(frequency, day, None)} om {time}")
+
+        if not created:
+            await interaction.response.send_message(
+                "ℹ️ Alle PK-reminders bestaan al. Bekijk ze met `/reminder list`.", ephemeral=True
+            )
+            return
+
+        summary = "\n".join(f"• {c}" for c in created)
+        tail = f"\n\n_{skipped} bestonden al en zijn overgeslagen._" if skipped else ""
+        await interaction.response.send_message(
+            f"✅ {len(created)} reminder(s) aangemaakt in {kanaal.mention}:\n{summary}{tail}"
+        )
+
     @reminder.command(name="add", description="Maak een eigen herinnering aan")
     @app_commands.describe(
-        bericht="De tekst van de herinnering",
+        bericht="De tekst. Scheid varianten met | — de bot kiest er elke keer willekeurig een.",
         tijd="Tijd in HH:MM (bijv. 16:00, Nederlandse tijd)",
         frequentie="Hoe vaak de herinnering herhaald wordt",
         weekdag="Alleen bij wekelijks: op welke dag",
@@ -162,6 +214,7 @@ class RemindersCog(commands.Cog):
     @app_commands.choices(
         frequentie=[
             app_commands.Choice(name="dagelijks", value="daily"),
+            app_commands.Choice(name="elke werkdag (ma-vr)", value="weekdays"),
             app_commands.Choice(name="wekelijks", value="weekly"),
             app_commands.Choice(name="maandelijks", value="monthly"),
             app_commands.Choice(name="eenmalig", value="once"),
@@ -263,6 +316,8 @@ class RemindersCog(commands.Cog):
     def _describe(frequency: str, day: int | None, date: str | None) -> str:
         if frequency == "daily":
             return "dagelijks"
+        if frequency == "weekdays":
+            return "elke werkdag"
         if frequency == "weekly":
             return f"wekelijks op {WEEKDAYS_NL[day]}" if day is not None else "wekelijks"
         if frequency == "monthly":

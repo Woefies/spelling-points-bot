@@ -16,11 +16,24 @@ class Settings:
     version: str = "unknown"
     github_repo: str = "Woefies/spelling-points-bot"
     github_branch: str = "master"
+    # When set, slash commands sync to this one guild instead of globally.
+    # Guild syncs are instant; global syncs can take up to an hour to appear.
+    dev_guild_id: int | None = None
     whitelist: set[str] = field(default_factory=lambda: {"lol", "haha", "xd", "omg", "brb"})
 
 
 def _parse_bool(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes"}
+
+
+def _parse_optional_int(name: str) -> int | None:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise RuntimeError(f"{name} must be a numeric Discord ID, got {raw!r}") from None
 
 
 def _read_version() -> str:
@@ -50,6 +63,7 @@ def load_settings() -> Settings:
     version = _read_version()
     github_repo = os.getenv("GITHUB_REPO", defaults.github_repo)
     github_branch = os.getenv("GITHUB_BRANCH", defaults.github_branch)
+    dev_guild_id = _parse_optional_int("DEV_GUILD_ID")
 
     return Settings(
         token=token,
@@ -62,4 +76,5 @@ def load_settings() -> Settings:
         version=version,
         github_repo=github_repo,
         github_branch=github_branch,
+        dev_guild_id=dev_guild_id,
     )

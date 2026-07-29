@@ -2,7 +2,7 @@ import pathlib
 import sqlite3
 import threading
 
-from repositories.base import ScoreRepository
+from repositories.base import ScoreRepository, Trigger
 
 
 class SqliteScoreRepository(ScoreRepository):
@@ -45,6 +45,32 @@ class SqliteScoreRepository(ScoreRepository):
                     ts TEXT DEFAULT CURRENT_TIMESTAMP
                 )
                 """
+            )
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS triggers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    pattern TEXT NOT NULL,
+                    response TEXT,
+                    reactions TEXT
+                )
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guild_config (
+                    guild_id INTEGER,
+                    key TEXT,
+                    value TEXT,
+                    PRIMARY KEY (guild_id, key)
+                )
+                """
+            )
+            # The daily leaderboard filters issues_log by guild and date on every
+            # run; without this it is a full table scan of an append-only log.
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_issues_guild_ts ON issues_log (guild_id, ts)"
             )
             self._conn.commit()
 
@@ -119,3 +145,92 @@ class SqliteScoreRepository(ScoreRepository):
                 (guild_id, user_id, word, lang, kind),
             )
             self._conn.commit()
+
+    def leaderboard_between(
+        self, guild_id: int, start_utc: str, end_utc: str, limit: int = 10
+    ) -> list[tuple[int, int]]:
+        # `scores` only holds running totals, so "today" has to come from the
+        # timestamped log. ts is SQLite's CURRENT_TIMESTAMP, i.e. UTC.
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT user_id, COUNT(*) AS n FROM issues_log
+                WHERE guild_id = ? AND ts >= ? AND ts < ?
+                GROUP BY user_id
+                ORDER BY n DESC
+                LIMIT ?
+                """,
+                (guild_id, start_utc, end_utc, limit),
+            )
+            rows = cur.fetchall()
+        return [(row[0], row[1]) for row in rows]
+
+    def set_config(self, guild_id: int, key: str, value: str | None) -> None:
+        with self._lock:
+            if value is None:
+                self._conn.execute(
+                    "DELETE FROM guild_config WHERE guild_id = ? AND key = ?", (guild_id, key)
+                )
+            else:
+                self._conn.execute(
+                    """
+                    INSERT INTO guild_config (guild_id, key, value) VALUES (?, ?, ?)
+                    ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value
+                    """,
+                    (guild_id, key, value),
+                )
+            self._conn.commit()
+
+    def get_config(self, guild_id: int, key: str) -> str | None:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT value FROM guild_config WHERE guild_id = ? AND key = ?", (guild_id, key)
+            )
+            row = cur.fetchone()
+        return row[0] if row else None
+
+    def all_config(self, key: str) -> list[tuple[int, str]]:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT guild_id, value FROM guild_config WHERE key = ?", (key,)
+            )
+            rows = cur.fetchall()
+        return [(row[0], row[1]) for row in rows]
+
+    def add_trigger(
+        self, guild_id: int, pattern: str, response: str | None, reactions: str | None
+    ) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO triggers (guild_id, pattern, response, reactions) VALUES (?, ?, ?, ?)",
+                (guild_id, pattern, response, reactions),
+            )
+            self._conn.commit()
+        return cur.lastrowid
+
+    def list_triggers(self, guild_id: int) -> list[Trigger]:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT id, guild_id, pattern, response, reactions FROM triggers "
+                "WHERE guild_id = ? ORDER BY id",
+                (guild_id,),
+            )
+            rows = cur.fetchall()
+        return [Trigger(*row) for row in rows]
+
+    def remove_trigger(self, guild_id: int, trigger_id: int) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM triggers WHERE guild_id = ? AND id = ?", (guild_id, trigger_id)
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    def trigger_exists(self, guild_id: int, pattern: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT 1 FROM triggers WHERE guild_id = ? AND pattern = ? LIMIT 1",
+                (guild_id, pattern),
+            )
+            row = cur.fetchone()
+        return row is not None
