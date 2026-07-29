@@ -73,6 +73,16 @@ Slash-only group `/reminder setup|preset|add|list|remove`, gated behind `default
 
 `services/variants.py` is shared by both: `pick_variant` picks one of several `|`-separated phrasings per firing (so recurring output does not go stale), and `compile_phrases` builds the matching regex. Reminders and triggers both store variants in a single text column.
 
+## Backups
+
+`data/` is a mounted volume, so configuration already survives a rebuild — the gap backups close is the database file itself being lost or corrupted. `cogs/backup.py` writes a JSON snapshot of `reminders`, `triggers`, `whitelist`, `guild_config` and `scores` at 04:00 daily into `data/backups/` (gitignored), keeping the newest 14. `issues_log` is excluded on purpose: append-only audit data, unbounded, pointless to restore.
+
+`services/backup.py` holds the logic and talks to SQLite directly rather than through a repository, so `scripts/export_config.py` and `scripts/import_config.py` can reuse it without importing discord.py. Writes go to a `.tmp` file and are then `replace()`d into position, so a crash mid-write cannot leave a truncated file that looks valid. Missing tables are skipped rather than raising — `reminders` only exists once that cog has run.
+
+Restore is destructive by design (wipe the table, reinsert): a merge would leave old and restored rows indistinguishable. `import_config.py` is therefore a dry run unless `--replace` is passed.
+
+The backup cog pins a fixed UTC+1 offset instead of `ZoneInfo`, so it does not inherit the tzdata dependency that can stop the reminders cog from loading. It drifts to 05:00 local in summer, which is fine for a nightly job.
+
 ## Data model (SQLite, `data/points.db`)
 
 `scores` (guild_id, user_id, mistakes — upserted), `whitelist` (guild_id, word — per-guild ignored words), `issues_log` (append-only audit of every flagged word with lang/kind/timestamp, indexed on `(guild_id, ts)` for the daily summary), `triggers` (keyword → response/reactions), `guild_config` (per-guild key/value, currently the daily-summary channel and time), `reminders` (schedule rows, see above). Tables auto-created on repo init by whichever repo owns them.

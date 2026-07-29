@@ -36,6 +36,8 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/trigger preset` | De vaste triggers aanzetten |
 | `/trigger add\|list\|remove` | Eigen trefwoorden beheren |
 | `/dagoverzicht aan\|uit\|nu` | Het dagelijkse overzicht regelen |
+| `/backup nu` | Nu een back-up van de configuratie maken |
+| `/backup lijst` | Bestaande back-ups tonen |
 
 Bij `/reminder add` en `/trigger add` kun je meerdere teksten scheiden met een
 `|`. De bot kiest er elke keer willekeurig één, zodat een dagelijks bericht niet
