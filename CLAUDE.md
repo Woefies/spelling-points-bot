@@ -27,7 +27,7 @@ python bot.py
 
 Three swap points, each backed by an interface/registry. Adding a feature = drop a file at the right point, no wiring elsewhere.
 
-1. **Cogs** (`cogs/`) — auto-loaded in `core/bot.py:setup_hook` via `pkgutil.iter_modules(cogs.__path__)`. Every module in `cogs/` with an `async def setup(bot)` is loaded automatically. Drop a new cog file → it loads. `spelling.py` holds the `on_message` flow; `scores.py`, `admin.py` and `version.py` are `hybrid_command`s (slash + prefix both work); `reminders.py` and `say.py` are pure `app_commands` (slash only).
+1. **Cogs** (`cogs/`) — auto-loaded in `core/bot.py:setup_hook` via `pkgutil.iter_modules(cogs.__path__)`. Every module in `cogs/` with an `async def setup(bot)` is loaded automatically. Drop a new cog file → it loads. `spelling.py` holds the `on_message` flow; `scores.py`, `admin.py` and `version.py` are `hybrid_command`s (slash + prefix both work); `reminders.py`, `say.py`, `triggers.py` and `daily_summary.py` are pure `app_commands` (slash only).
    - `say.py` posts as the bot with no attribution: the interaction reply is `ephemeral=True` (so other members never see the invocation *or* the "used /say" header) and the content goes out via a separate `channel.send()`. Both halves are required — a non-ephemeral reply would expose the invoker. It is gated on `manage_guild` and forces `AllowedMentions.none()`, since anonymous posting plus mass-ping is an abuse vector.
    - Loading is fault-isolated (`_load_cogs`): a cog that raises at import is logged with a traceback and skipped, and the rest still load. Startup logs list which cogs loaded and which failed, so a missing command is traceable to a named cog instead of a silent absence.
    - Command sync (`_sync_commands`) is also non-fatal, and catches broadly on purpose — `sync()` and `copy_global_to()` raise from two unrelated hierarchies (`HTTPException`, plus `AppCommandError` subclasses like `CommandLimitReached` and `TranslationError`), and a failed sync must never stop the bot. **Set `DEV_GUILD_ID` while developing:** it syncs to that one guild and shows up instantly, where the global sync takes up to an hour — new commands look broken when they are merely not propagated yet. Every synced command name is logged.
@@ -56,16 +56,28 @@ Three swap points, each backed by an interface/registry. Adding a feature = drop
 
 ## Reminders (`cogs/reminders.py` + `repositories/reminders_repo.py`)
 
-Slash-only group `/reminder setup|add|list|remove`, gated behind `default_permissions=manage_guild` (users without *Manage Server* don't see the command at all). A `tasks.loop(seconds=30)` compares `datetime.now(ZoneInfo("Europe/Amsterdam"))` formatted as `HH:MM` against each stored reminder; a `last_fired` date column guards against double sends. Frequencies: `daily` / `weekly` (weekday 0-6) / `monthly` (day clamped to month length) / `once` (deleted after firing).
+Slash-only group `/reminder setup|preset|add|list|remove`, gated behind `default_permissions=manage_guild` (users without *Manage Server* don't see the command at all). A `tasks.loop(seconds=30)` compares `datetime.now(ZoneInfo("Europe/Amsterdam"))` formatted as `HH:MM` against each stored reminder; a `last_fired` date column guards against double sends. Frequencies: `daily` / `weekdays` (Mon-Fri) / `weekly` (weekday 0-6) / `monthly` (day clamped to month length) / `once` (deleted after firing).
+
+`PK_PRESET` holds the fixed company set seeded by `/reminder preset`. A reminder that needs to fire several times a day is stored as several rows — there is no interval frequency.
 
 - **`TZ = ZoneInfo("Europe/Amsterdam")` runs at module import.** `tzdata` is not in `requirements.txt`, so this depends entirely on the OS tz database being present in the image. If it isn't, the cog fails to import — since fault isolation landed this only costs you the reminders cog rather than the whole bot, and the startup log names it. Add `tzdata` to requirements if that shows up.
 - Because the cog pins the timezone explicitly, the container's `TZ` env is irrelevant. Don't "fix" reminders by setting `TZ` in `docker-compose.yml`.
 - Send failures are swallowed (`except discord.HTTPException: pass`), so a missing *Mention @everyone* permission looks like silence, not an error.
 - `exists_similar()` matches on message+time+frequency only, ignoring channel — re-running `/reminder setup` with a different channel reports "already exist" instead of moving them. There is no edit command.
 
+## Triggers and the daily summary
+
+`cogs/triggers.py` reacts to keywords with a reply, emoji, or both — a social nudge, not a mistake, so it awards no points. Rows live in the `triggers` table and are editable at runtime via `/trigger add|list|remove|preset`; nothing is hardcoded except the `PK_TRIGGERS` seed. Patterns are matched with `services/variants.compile_phrases`, which wraps `\b…\b` word boundaries around each phrase — that is what keeps the profanity trigger off `kankeren` and `borstkanker`. It cannot keep it off a genuine medical mention, which is a known and accepted limitation. At most one reply fires per message however many triggers match.
+
+`cogs/daily_summary.py` posts the day's leaderboard on weekdays at a configurable time (`/dagoverzicht aan|uit|nu`), reading `issues_log` because `scores` only holds running totals. **Timezone trap:** `issues_log.ts` is SQLite's `CURRENT_TIMESTAMP` (UTC) while the reporting day is Amsterdam local, so it queries a UTC *range* built by `_utc_window_for_local_day`, never `DATE(ts)`. A plain date match silently files everything logged between local midnight and 01:00/02:00 into the previous day.
+
+`services/variants.py` is shared by both: `pick_variant` picks one of several `|`-separated phrasings per firing (so recurring output does not go stale), and `compile_phrases` builds the matching regex. Reminders and triggers both store variants in a single text column.
+
 ## Data model (SQLite, `data/points.db`)
 
-`scores` (guild_id, user_id, mistakes — upserted), `whitelist` (guild_id, word — per-guild ignored words), `issues_log` (append-only audit of every flagged word with lang/kind/timestamp), `reminders` (schedule rows, see above). Tables auto-created on repo init by whichever repo owns them.
+`scores` (guild_id, user_id, mistakes — upserted), `whitelist` (guild_id, word — per-guild ignored words), `issues_log` (append-only audit of every flagged word with lang/kind/timestamp, indexed on `(guild_id, ts)` for the daily summary), `triggers` (keyword → response/reactions), `guild_config` (per-guild key/value, currently the daily-summary channel and time), `reminders` (schedule rows, see above). Tables auto-created on repo init by whichever repo owns them.
+
+Triggers and config live on `SqliteScoreRepository` rather than in a repo of their own, deliberately: a separate repo would mean a third SQLite connection to the same file, which is the problem flagged above. The class name is now narrower than what it stores.
 
 `issues_log` grows unbounded and has no index beyond the implicit rowid; there is no pruning job.
 
