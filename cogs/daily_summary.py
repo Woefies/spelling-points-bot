@@ -103,14 +103,14 @@ class DailySummaryCog(commands.Cog):
 
     dagoverzicht = app_commands.Group(
         name="dagoverzicht",
-        description="Dagelijks foutenoverzicht aan het eind van de werkdag",
+        description="Dagelijkse ranglijst van de spelfouten van die dag, aan het eind van de werkdag",
         default_permissions=discord.Permissions(manage_guild=True),
         guild_only=True,
     )
 
-    @dagoverzicht.command(name="aan", description="Zet het dagoverzicht aan in een kanaal")
+    @dagoverzicht.command(name="aan", description="Zet het dagoverzicht aan. Standaard elke werkdag om 16:30")
     @app_commands.describe(
-        kanaal="Kanaal waar het overzicht geplaatst wordt",
+        kanaal="In welk kanaal het overzicht elke werkdag geplaatst wordt",
         tijd=f"Tijd in HH:MM (standaard {DEFAULT_TIME}, alleen op werkdagen)",
     )
     async def enable_cmd(
@@ -135,13 +135,13 @@ class DailySummaryCog(commands.Cog):
             f"✅ Dagoverzicht staat aan: elke werkdag om **{when}** in {kanaal.mention}."
         )
 
-    @dagoverzicht.command(name="uit", description="Zet het dagoverzicht uit")
+    @dagoverzicht.command(name="uit", description="Zet het dagoverzicht uit. De punten blijven gewoon geteld worden")
     async def disable_cmd(self, interaction: discord.Interaction) -> None:
         self.bot.repo.set_config(interaction.guild_id, CONFIG_CHANNEL, None)
         self.bot.repo.set_config(interaction.guild_id, CONFIG_TIME, None)
         await interaction.response.send_message("🛑 Dagoverzicht staat uit.")
 
-    @dagoverzicht.command(name="nu", description="Toon het overzicht van vandaag meteen")
+    @dagoverzicht.command(name="nu", description="Toon nu het overzicht van vandaag, zonder te wachten tot het eind van de dag")
     async def now_cmd(self, interaction: discord.Interaction) -> None:
         embed = self._build_embed(interaction.guild_id, datetime.now(TZ))
         await interaction.response.send_message(embed=embed)

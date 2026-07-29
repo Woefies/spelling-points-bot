@@ -24,7 +24,7 @@ class VersionCog(commands.Cog):
         except aiohttp.ClientError:
             return None
 
-    @commands.hybrid_command(name="version", description="Show running version and check GitHub for updates")
+    @commands.hybrid_command(name="version", description="Toon welke versie draait en of er een nieuwere beschikbaar is")
     async def version(self, ctx: commands.Context) -> None:
         running = self.bot.settings.version
         latest = await self._fetch_latest()

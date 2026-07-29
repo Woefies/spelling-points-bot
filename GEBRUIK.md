@@ -33,6 +33,7 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/say` | De bot iets laten zeggen — niemand ziet dat jij het was |
 | `/reminder preset` | Alle vaste reminders in één keer aanmaken |
 | `/reminder add\|list\|remove` | Eigen herinneringen beheren |
+| `/reminder edit <id>` | Tekst, tijd, kanaal of mention aanpassen |
 | `/trigger preset` | De vaste triggers aanzetten |
 | `/trigger add\|list\|remove` | Eigen trefwoorden beheren |
 | `/dagoverzicht aan\|uit\|nu` | Het dagelijkse overzicht regelen |
@@ -42,6 +43,10 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 Bij `/reminder add` en `/trigger add` kun je meerdere teksten scheiden met een
 `|`. De bot kiest er elke keer willekeurig één, zodat een dagelijks bericht niet
 gaat vervelen.
+
+Moet een herinnering meerdere keren per dag afgaan, vul dan meerdere tijden in
+gescheiden door komma's: `09:00, 11:00, 13:00, 15:00, 17:00`. Dat is één
+herinnering met één ID, dus je past de tekst ook maar op één plek aan.
 
 ## Onterecht een punt gekregen?
 

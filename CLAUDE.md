@@ -56,9 +56,17 @@ Three swap points, each backed by an interface/registry. Adding a feature = drop
 
 ## Reminders (`cogs/reminders.py` + `repositories/reminders_repo.py`)
 
-Slash-only group `/reminder setup|preset|add|list|remove`, gated behind `default_permissions=manage_guild` (users without *Manage Server* don't see the command at all). A `tasks.loop(seconds=30)` compares `datetime.now(ZoneInfo("Europe/Amsterdam"))` formatted as `HH:MM` against each stored reminder; a `last_fired` date column guards against double sends. Frequencies: `daily` / `weekdays` (Mon-Fri) / `weekly` (weekday 0-6) / `monthly` (day clamped to month length) / `once` (deleted after firing).
+Slash-only group `/reminder setup|preset|add|edit|list|remove`, gated behind `default_permissions=manage_guild` (users without *Manage Server* don't see the command at all). A `tasks.loop(seconds=30)` compares `datetime.now(ZoneInfo("Europe/Amsterdam"))` formatted as `HH:MM` against each stored reminder. Frequencies: `daily` / `weekdays` (Mon-Fri) / `weekly` (weekday 0-6) / `monthly` (day clamped to month length) / `once` (deleted after firing).
 
-`PK_PRESET` holds the fixed company set seeded by `/reminder preset`. A reminder that needs to fire several times a day is stored as several rows — there is no interval frequency.
+**One reminder can hold several times of day**, stored comma-separated in the existing `time` column (`"09:00,11:00,13:00"`) and parsed by `_parse_times`, which normalises, sorts and dedupes. This is why `last_fired` stores `"YYYY-MM-DD HH:MM"` rather than a bare date: the guard has to allow a second firing later the same day while still blocking the 30s loop from double-sending inside one minute. Rows written before this change hold a bare date, which simply never matches — costing exactly one extra send on the day of the upgrade, deemed cheaper than a migration.
+
+`/reminder edit` patches only `message`, `time`, `channel_id` and `mention`. Frequency, day and date are intentionally not editable: validating those combinations lives in `add_cmd`, and duplicating it in an edit path invites the two drifting apart.
+
+`PK_PRESET` holds the fixed company set seeded by `/reminder preset` — four rows, since the five daily hour-check slots collapsed into one multi-time row.
+
+## Command help text
+
+`description=` on a command and each `app_commands.describe` string are what Discord shows while someone is typing, and **Discord caps both at 100 characters** — the API rejects the whole sync if any is longer, which takes down every command, not just the offending one. Write them as a hint with a concrete example (`"Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00"`), and keep them in Dutch: the entire user-facing surface is Dutch, while the code and these notes are English.
 
 - **`TZ = ZoneInfo("Europe/Amsterdam")` runs at module import.** `tzdata` is not in `requirements.txt`, so this depends entirely on the OS tz database being present in the image. If it isn't, the cog fails to import — since fault isolation landed this only costs you the reminders cog rather than the whole bot, and the startup log names it. Add `tzdata` to requirements if that shows up.
 - Because the cog pins the timezone explicitly, the container's `TZ` env is irrelevant. Don't "fix" reminders by setting `TZ` in `docker-compose.yml`.

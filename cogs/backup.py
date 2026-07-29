@@ -53,12 +53,12 @@ class BackupCog(commands.Cog):
 
     backup = app_commands.Group(
         name="backup",
-        description="Back-ups van de botconfiguratie",
+        description="Back-ups van reminders, triggers, whitelist en puntenstanden",
         default_permissions=discord.Permissions(manage_guild=True),
         guild_only=True,
     )
 
-    @backup.command(name="nu", description="Maak nu een back-up van de configuratie")
+    @backup.command(name="nu", description="Maak nu direct een back-up. Gebeurt sowieso automatisch elke nacht om 04:00")
     async def now_cmd(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -76,7 +76,7 @@ class BackupCog(commands.Cog):
             f"✅ Back-up gemaakt: `{path.name}`\n{summary}", ephemeral=True
         )
 
-    @backup.command(name="lijst", description="Toon de bestaande back-ups")
+    @backup.command(name="lijst", description="Toon welke back-ups er zijn, hoe recent en hoe groot")
     async def list_cmd(self, interaction: discord.Interaction) -> None:
         dest = backup_dir_for(self.bot.settings.db_path)
         snapshots = sorted(dest.glob("config-backup-*.json"), reverse=True)
