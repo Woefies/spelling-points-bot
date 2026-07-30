@@ -27,7 +27,7 @@ python bot.py
 
 Three swap points, each backed by an interface/registry. Adding a feature = drop a file at the right point, no wiring elsewhere.
 
-1. **Cogs** (`cogs/`) — auto-loaded in `core/bot.py:setup_hook` via `pkgutil.iter_modules(cogs.__path__)`. Every module in `cogs/` with an `async def setup(bot)` is loaded automatically. Drop a new cog file → it loads. `spelling.py` holds the `on_message` flow; `scores.py`, `admin.py` and `version.py` are `hybrid_command`s (slash + prefix both work); `reminders.py`, `say.py`, `triggers.py` and `daily_summary.py` are pure `app_commands` (slash only).
+1. **Cogs** (`cogs/`) — auto-loaded in `core/bot.py:setup_hook` via `pkgutil.iter_modules(cogs.__path__)`. Every module in `cogs/` with an `async def setup(bot)` is loaded automatically. Drop a new cog file → it loads. `spelling.py` holds the `on_message` flow; `scores.py`, `admin.py` and `version.py` are `hybrid_command`s (slash + prefix both work); `reminders.py`, `say.py`, `triggers.py`, `daily_summary.py`, `backup.py` and `reset.py` are pure `app_commands` (slash only).
    - `say.py` posts as the bot with no attribution: the interaction reply is `ephemeral=True` (so other members never see the invocation *or* the "used /say" header) and the content goes out via a separate `channel.send()`. Both halves are required — a non-ephemeral reply would expose the invoker. It is gated on `manage_guild` and forces `AllowedMentions.none()`, since anonymous posting plus mass-ping is an abuse vector.
    - Loading is fault-isolated (`_load_cogs`): a cog that raises at import is logged with a traceback and skipped, and the rest still load. Startup logs list which cogs loaded and which failed, so a missing command is traceable to a named cog instead of a silent absence.
    - Command sync (`_sync_commands`) is also non-fatal, and catches broadly on purpose — `sync()` and `copy_global_to()` raise from two unrelated hierarchies (`HTTPException`, plus `AppCommandError` subclasses like `CommandLimitReached` and `TranslationError`), and a failed sync must never stop the bot. **Set `DEV_GUILD_ID` while developing:** it syncs to that one guild and shows up instantly, where the global sync takes up to an hour — new commands look broken when they are merely not propagated yet. Every synced command name is logged.
@@ -60,6 +60,8 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 
 **One reminder can hold several times of day**, stored comma-separated in the existing `time` column (`"09:00,11:00,13:00"`) and parsed by `_parse_times`, which normalises, sorts and dedupes. This is why `last_fired` stores `"YYYY-MM-DD HH:MM"` rather than a bare date: the guard has to allow a second firing later the same day while still blocking the 30s loop from double-sending inside one minute. Rows written before this change hold a bare date, which simply never matches — costing exactly one extra send on the day of the upgrade, deemed cheaper than a migration.
 
+`/reminder edit` and `/reminder remove` (and `/trigger remove`) autocomplete the `id` parameter with the guild's own rows, so nobody has to look up a number first. discord.py passes `self` to an autocomplete callback defined inside a class automatically (`pass_command_binding`), so these are plain cog methods. Both Discord limits are handled: choice names are truncated at 100 characters and the list at 25.
+
 `/reminder edit` patches only `message`, `time`, `channel_id` and `mention`. Frequency, day and date are intentionally not editable: validating those combinations lives in `add_cmd`, and duplicating it in an edit path invites the two drifting apart.
 
 **No reminder or trigger text lives in the code.** There is no preset or seed command: every reminder and trigger is created at runtime and stored in SQLite, so changing wording never needs a code change, a rebuild, or a deploy by whoever runs the host. Restoring a lost set comes from a backup snapshot (see below), which holds the real current text rather than a stale template.
@@ -80,6 +82,12 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 `cogs/daily_summary.py` posts the day's leaderboard on weekdays at a configurable time (`/dagoverzicht aan|uit|nu`), reading `issues_log` because `scores` only holds running totals. **Timezone trap:** `issues_log.ts` is SQLite's `CURRENT_TIMESTAMP` (UTC) while the reporting day is Amsterdam local, so it queries a UTC *range* built by `_utc_window_for_local_day`, never `DATE(ts)`. A plain date match silently files everything logged between local midnight and 01:00/02:00 into the previous day.
 
 `services/variants.py` is shared by both: `pick_variant` picks one of several `|`-separated phrasings per firing (so recurring output does not go stale), and `compile_phrases` builds the matching regex. Reminders and triggers both store variants in a single text column.
+
+## Resetting
+
+`/reset` wipes one category (`reminders`, `triggers`, `whitelist`, `scores`, `guild_config`, or all of them) for the calling guild. It **always writes a backup snapshot first and aborts if that fails** — the snapshot is the only way back, so taking it afterwards would be pointless. It also requires an explicit `bevestig: True`; a destructive command that fires on a single click is a footgun.
+
+`SqliteScoreRepository.clear()` maps a caller-supplied key through `_CLEARABLE` before it reaches the SQL string, so a table name is never interpolated unchecked, and it returns 0 for a table that does not exist yet rather than raising. It clears `reminders` too, even though `SqliteReminderRepository` owns that table — running one DELETE is not worth a third connection to the same file.
 
 ## Backups
 

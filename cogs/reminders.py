@@ -146,6 +146,27 @@ class RemindersCog(commands.Cog):
     async def before_check(self) -> None:
         await self.bot.wait_until_ready()
 
+    # --------------------------------------------------------- autocomplete
+
+    async def _reminder_choices(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        """Offer the guild's reminders by name so nobody has to memorise an ID."""
+        term = current.lower()
+        choices = []
+        for rem in self.reminders.list_for_guild(interaction.guild_id):
+            first = rem.message.split("|")[0].strip()
+            label = (
+                f"#{rem.id} · {self._describe(rem.frequency, rem.day, rem.date)} "
+                f"om {_format_times(rem.time)} · {first}"
+            )
+            if len(label) > 100:  # Discord's limit on a choice name
+                label = label[:97] + "..."
+            if term and term not in label.lower():
+                continue
+            choices.append(app_commands.Choice(name=label, value=rem.id))
+        return choices[:25]  # Discord shows at most 25
+
     # -------------------------------------------------------------- commands
 
     reminder = app_commands.Group(
@@ -247,8 +268,9 @@ class RemindersCog(commands.Cog):
         )
 
     @reminder.command(name="edit", description="Pas tekst, tijd, kanaal of mention aan zonder de herinnering opnieuw te maken")
+    @app_commands.autocomplete(id=_reminder_choices)
     @app_commands.describe(
-        id="Het nummer uit /reminder list, bijv. 8",
+        id="Kies de herinnering uit de lijst",
         bericht="Nieuwe tekst. Varianten scheiden met | zodat de bot afwisselt",
         tijd="Nieuwe tijd(en) als HH:MM. Meerdere per dag met komma's: 09:00, 13:00, 17:00",
         kanaal="Verplaats de herinnering naar een ander kanaal",
@@ -334,8 +356,9 @@ class RemindersCog(commands.Cog):
         embed.description = "\n\n".join(lines)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @reminder.command(name="remove", description="Verwijder een herinnering aan de hand van het ID uit /reminder list")
-    @app_commands.describe(id="Het nummer uit /reminder list, bijv. 8")
+    @reminder.command(name="remove", description="Verwijder een herinnering. Kies hem uit de lijst")
+    @app_commands.autocomplete(id=_reminder_choices)
+    @app_commands.describe(id="Kies de herinnering die je wilt verwijderen")
     async def remove_cmd(self, interaction: discord.Interaction, id: int) -> None:
         if self.reminders.remove(interaction.guild_id, id):
             await interaction.response.send_message(f"🗑️ Herinnering **#{id}** verwijderd.", ephemeral=True)

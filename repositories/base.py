@@ -88,6 +88,11 @@ class ScoreRepository(ABC):
         ...
 
     @abstractmethod
+    def clear(self, guild_id: int, what: str) -> int:
+        """Delete every row for this guild from one resettable table. Returns the count."""
+        ...
+
+    @abstractmethod
     def all_config(self, key: str) -> list[tuple[int, str]]:
         """(guild_id, value) for every guild that has this key set."""
         ...

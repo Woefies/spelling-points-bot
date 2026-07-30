@@ -51,6 +51,23 @@ class TriggersCog(commands.Cog):
                 except discord.HTTPException:
                     log.warning("Could not reply for trigger %d", trig.id)
 
+    # --------------------------------------------------------- autocomplete
+
+    async def _trigger_choices(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        term = current.lower()
+        choices = []
+        for trig in self.bot.repo.list_triggers(interaction.guild_id):
+            what = trig.reactions or (trig.response or "").split("|")[0].strip()
+            label = f"#{trig.id} · {trig.pattern} → {what}"
+            if len(label) > 100:
+                label = label[:97] + "..."
+            if term and term not in label.lower():
+                continue
+            choices.append(app_commands.Choice(name=label, value=trig.id))
+        return choices[:25]
+
     # -------------------------------------------------------------- commands
 
     trigger = app_commands.Group(
@@ -116,8 +133,9 @@ class TriggersCog(commands.Cog):
         embed.description = "\n".join(lines)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @trigger.command(name="remove", description="Verwijder een trigger aan de hand van het ID uit /trigger list")
-    @app_commands.describe(id="Het nummer uit /trigger list, bijv. 3")
+    @trigger.command(name="remove", description="Verwijder een trigger. Kies hem uit de lijst")
+    @app_commands.autocomplete(id=_trigger_choices)
+    @app_commands.describe(id="Kies de trigger die je wilt verwijderen")
     async def remove_cmd(self, interaction: discord.Interaction, id: int) -> None:
         if self.bot.repo.remove_trigger(interaction.guild_id, id):
             await interaction.response.send_message(f"🗑️ Trigger **#{id}** verwijderd.", ephemeral=True)

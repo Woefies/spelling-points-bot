@@ -189,6 +189,30 @@ class SqliteScoreRepository(ScoreRepository):
             row = cur.fetchone()
         return row[0] if row else None
 
+    # `reminders` is owned by SqliteReminderRepository, but resetting it from here
+    # avoids opening a third connection to the same file just to run one DELETE.
+    _CLEARABLE = {
+        "reminders": "reminders",
+        "triggers": "triggers",
+        "whitelist": "whitelist",
+        "scores": "scores",
+        "guild_config": "guild_config",
+    }
+
+    def clear(self, guild_id: int, what: str) -> int:
+        # Not user input: a bad key here is a programming error, and the mapping
+        # keeps a table name from ever reaching the SQL string unchecked.
+        table = self._CLEARABLE[what]
+        with self._lock:
+            exists = self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+            ).fetchone()
+            if not exists:
+                return 0
+            cur = self._conn.execute(f"DELETE FROM {table} WHERE guild_id = ?", (guild_id,))
+            self._conn.commit()
+        return cur.rowcount
+
     def all_config(self, key: str) -> list[tuple[int, str]]:
         with self._lock:
             cur = self._conn.execute(
