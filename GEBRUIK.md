@@ -31,10 +31,8 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/whitelist add <woord>` | Woord voortaan goedkeuren in deze server |
 | `/whitelist remove <woord>` | Woord weer meetellen |
 | `/say` | De bot iets laten zeggen — niemand ziet dat jij het was |
-| `/reminder preset` | Alle vaste reminders in één keer aanmaken |
 | `/reminder add\|list\|remove` | Eigen herinneringen beheren |
 | `/reminder edit <id>` | Tekst, tijd, kanaal of mention aanpassen |
-| `/trigger preset` | De vaste triggers aanzetten |
 | `/trigger add\|list\|remove` | Eigen trefwoorden beheren |
 | `/dagoverzicht aan\|uit\|nu` | Het dagelijkse overzicht regelen |
 | `/backup nu` | Nu een back-up van de configuratie maken |

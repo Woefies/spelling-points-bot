@@ -12,12 +12,13 @@ class Reminder:
     guild_id: int
     channel_id: int
     message: str
-    time: str  # "HH:MM" (Europe/Amsterdam)
-    frequency: str  # daily | weekly | monthly | once
+    time: str  # "HH:MM", or several comma-separated: "09:00,13:00"
+    frequency: str  # daily | weekdays | weekly | monthly | once
     day: int | None  # weekday 0-6 (weekly) or day-of-month 1-31 (monthly)
     date: str | None  # "YYYY-MM-DD" (once)
     mention: str  # everyone | here | none
-    last_fired: str | None  # "YYYY-MM-DD" guard against double sends
+    last_fired: str | None  # "YYYY-MM-DD HH:MM" — date *and* slot, so a
+    # multi-time reminder can fire again later the same day
 
 
 class SqliteReminderRepository:
@@ -148,13 +149,3 @@ class SqliteReminderRepository:
                 (date, reminder_id),
             )
             self._conn.commit()
-
-    def exists_similar(self, guild_id: int, message: str, time: str, frequency: str) -> bool:
-        """Used to avoid seeding duplicate built-in reminders on repeated /reminder setup."""
-        with self._lock:
-            cur = self._conn.execute(
-                "SELECT 1 FROM reminders WHERE guild_id = ? AND message = ? AND time = ? AND frequency = ? LIMIT 1",
-                (guild_id, message, time, frequency),
-            )
-            row = cur.fetchone()
-        return row is not None
