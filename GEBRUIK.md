@@ -37,7 +37,7 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/trigger add\|list\|remove` | Eigen trefwoorden beheren |
 | `/trigger edit <id>` | Woorden, antwoord of reacties aanpassen |
 | `/summary enable\|uit\|list` | Het dagelijkse overzicht regelen |
-| `/backup now` | Nu een back-up van de configuratie maken |
+| `/backup create` | Nu een back-up van de configuratie maken |
 | `/backup list` | Bestaande back-ups tonen |
 | `/backup download` | Nieuwste back-up als bestand, alleen naar jou |
 | `/whitelist export` | Whitelist als tekstbestand |

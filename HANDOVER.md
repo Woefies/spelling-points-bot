@@ -98,7 +98,7 @@ Controleren of het gelukt is: `/version` in Discord, of
 ### Back-ups
 - Elke nacht 04:00 een JSON-snapshot van reminders, triggers, whitelist,
   instellingen en punten, 14 dagen bewaard
-- `/backup now|list|download` en `scripts/export_config.py` / `import_config.py`
+- `/backup create|list|download` en `scripts/export_config.py` / `import_config.py`
 - `/reset` maakt altijd eerst een back-up en breekt af als dat mislukt
 
 ### Zelfbediening (zodat de collega niet nodig is)
