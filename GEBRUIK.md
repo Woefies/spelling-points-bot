@@ -36,13 +36,15 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/reminder edit <id>` | Tekst, tijd, kanaal of mention aanpassen |
 | `/trigger add\|list\|remove` | Eigen trefwoorden beheren |
 | `/trigger edit <id>` | Woorden, antwoord of reacties aanpassen |
-| `/dagoverzicht aan\|uit\|list` | Het dagelijkse overzicht regelen |
-| `/backup nu` | Nu een back-up van de configuratie maken |
+| `/summary enable\|uit\|list` | Het dagelijkse overzicht regelen |
+| `/backup now` | Nu een back-up van de configuratie maken |
 | `/backup list` | Bestaande back-ups tonen |
 | `/reset` | Herinneringen, triggers, whitelist of punten wissen |
-| `/straf modus` | Straffen uit, waarschuwen, of echt dempen |
-| `/straf drempel` | Na hoeveel fouten per dag de eerste mute volgt |
-| `/straf status` | Huidige instelling en de hele mute-ladder |
+| `/punish mode` | Straffen uit, waarschuwen, of echt dempen |
+| `/punish threshold` | Na hoeveel fouten per dag de eerste mute volgt |
+| `/punish ladder` | Hoe lang elke mute duurt, in minuten |
+| `/punish message` | Zelf schrijven wat de bot zegt bij een mute |
+| `/punish status` | Alle instellingen en de hele mute-ladder |
 
 Bij `/reminder add` en `/trigger add` kun je meerdere teksten scheiden met een
 `|`. De bot kiest er elke keer willekeurig één, zodat een dagelijks bericht niet
@@ -66,7 +68,11 @@ de teller opnieuw.
 
 Dit staat standaard **uit**, en gaat eerst in waarschuwingsmodus draaien: de bot
 zegt dan wel wie er gemute zóu worden, maar dempt niemand. Beheerders regelen
-dat met `/straf modus`.
+alles zelf met `/punish` — de drempel, hoe lang elke mute duurt, en zelfs wat de
+bot precies zegt. Daar is geen update van de bot voor nodig.
+
+De teksten mogen `{user}`, `{count}` en `{minutes}` bevatten. Bijvoorbeeld:
+`Hup {user}, {count} fouten. Even {minutes} stil.`
 
 ## Rustig aan met commando's
 
@@ -79,3 +85,9 @@ Dat kan, en het ligt niet aan jou. De bot rekent samengestelde woorden als
 "zonnebrandcrème" nu nog fout, en namen en straattaal kent hij ook niet allemaal.
 Meld het even, dan zet een beheerder het woord op de whitelist met
 `/whitelist add`.
+
+## Een opmerking over de taal
+
+De commando's zelf zijn Engels — `add`, `list`, `remove`, `edit` — omdat dat in
+Discord de standaard is en overal hetzelfde werkt. Alles wat de bot terugzegt,
+en alle uitleg die je ziet tijdens het typen, is Nederlands.

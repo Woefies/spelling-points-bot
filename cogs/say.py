@@ -19,19 +19,19 @@ class SayCog(commands.Cog):
 
     @app_commands.command(name="say", description="Laat de bot een bericht plaatsen. Niemand ziet dat jij het was")
     @app_commands.describe(
-        bericht="Wat de bot zegt. \\n = nieuwe regel, \\n\\n = witregel. Maximaal 2000 tekens",
-        kanaal="Waar het bericht komt. Standaard het kanaal waar je dit commando typt",
+        message="Wat de bot zegt. \\n = nieuwe regel, \\n\\n = witregel. Maximaal 2000 tekens",
+        channel="Waar het bericht komt. Standaard het kanaal waar je dit commando typt",
     )
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.guild_only()
     async def say(
         self,
         interaction: discord.Interaction,
-        bericht: str,
-        kanaal: discord.TextChannel | None = None,
+        message: str,
+        channel: discord.TextChannel | None = None,
     ) -> None:
         # Slash-command input is single-line, so let the user type \n for breaks.
-        text = bericht.replace("\\n", "\n")
+        text = message.replace("\\n", "\n")
         if len(text) > MAX_LENGTH:
             await interaction.response.send_message(
                 f"🚫 Te lang: {len(text)} tekens, Discord staat er {MAX_LENGTH} toe.",
@@ -39,7 +39,7 @@ class SayCog(commands.Cog):
             )
             return
 
-        target = kanaal or interaction.channel
+        target = channel or interaction.channel
         if target is None:
             await interaction.response.send_message(
                 "🚫 Kon het doelkanaal niet bepalen.", ephemeral=True

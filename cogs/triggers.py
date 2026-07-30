@@ -81,34 +81,34 @@ class TriggersCog(commands.Cog):
 
     @trigger.command(name="add", description="Laat de bot op een woord reageren met een tekst, emoji of allebei")
     @app_commands.describe(
-        woorden="Waar de bot op let. Meerdere schrijfwijzen met |: thuiswerken|thuis werken",
-        antwoord="Wat de bot terugzegt. Varianten met | zodat hij afwisselt. Leeg = niets zeggen",
-        reacties="Emoji onder het bericht, gescheiden door kommas. Bijvoorbeeld: 👎,❌",
+        words="Waar de bot op let. Meerdere schrijfwijzen met |: thuiswerken|thuis werken",
+        response="Wat de bot terugzegt. Varianten met | zodat hij afwisselt. Leeg = niets zeggen",
+        reactions="Emoji onder het bericht, gescheiden door kommas. Bijvoorbeeld: 👎,❌",
     )
     async def add_cmd(
         self,
         interaction: discord.Interaction,
-        woorden: str,
-        antwoord: str | None = None,
-        reacties: str | None = None,
+        words: str,
+        response: str | None = None,
+        reactions: str | None = None,
     ) -> None:
-        if not antwoord and not reacties:
+        if not response and not reactions:
             await interaction.response.send_message(
                 "🚫 Vul minstens `antwoord` of `reacties` in, anders doet de trigger niets.",
                 ephemeral=True,
             )
             return
 
-        if self.bot.repo.trigger_exists(interaction.guild_id, woorden):
+        if self.bot.repo.trigger_exists(interaction.guild_id, words):
             await interaction.response.send_message(
-                f"🚫 Er bestaat al een trigger op `{woorden}`. Bekijk ze met `/trigger list`.",
+                f"🚫 Er bestaat al een trigger op `{words}`. Bekijk ze met `/trigger list`.",
                 ephemeral=True,
             )
             return
 
-        trigger_id = self.bot.repo.add_trigger(interaction.guild_id, woorden, antwoord, reacties)
+        trigger_id = self.bot.repo.add_trigger(interaction.guild_id, words, response, reactions)
         await interaction.response.send_message(
-            f"✅ Trigger **#{trigger_id}** aangemaakt op: `{woorden}`",
+            f"✅ Trigger **#{trigger_id}** aangemaakt op: `{words}`",
             ephemeral=True,
         )
 
@@ -116,17 +116,17 @@ class TriggersCog(commands.Cog):
     @app_commands.autocomplete(id=_trigger_choices)
     @app_commands.describe(
         id="Kies de trigger die je wilt aanpassen",
-        woorden="Nieuwe schrijfwijzen, gescheiden met |. Leeg laten = ongewijzigd",
-        antwoord="Nieuw antwoord, varianten met |. Typ een - om het antwoord te wissen",
-        reacties="Nieuwe emoji, gescheiden door kommas. Typ een - om ze te wissen",
+        words="Nieuwe schrijfwijzen, gescheiden met |. Leeg laten = ongewijzigd",
+        response="Nieuw antwoord, varianten met |. Typ een - om het antwoord te wissen",
+        reactions="Nieuwe emoji, gescheiden door kommas. Typ een - om ze te wissen",
     )
     async def edit_cmd(
         self,
         interaction: discord.Interaction,
         id: int,
-        woorden: str | None = None,
-        antwoord: str | None = None,
-        reacties: str | None = None,
+        words: str | None = None,
+        response: str | None = None,
+        reactions: str | None = None,
     ) -> None:
         existing = self.bot.repo.get_trigger(interaction.guild_id, id)
         if existing is None:
@@ -138,12 +138,12 @@ class TriggersCog(commands.Cog):
         # A lone "-" means "make this empty", which is different from leaving the
         # field out. Without it there would be no way to drop a reply or the emoji.
         changes: dict = {}
-        if woorden is not None:
-            changes["pattern"] = woorden
-        if antwoord is not None:
-            changes["response"] = None if antwoord.strip() == CLEAR else antwoord
-        if reacties is not None:
-            changes["reactions"] = None if reacties.strip() == CLEAR else reacties
+        if words is not None:
+            changes["pattern"] = words
+        if response is not None:
+            changes["response"] = None if response.strip() == CLEAR else response
+        if reactions is not None:
+            changes["reactions"] = None if reactions.strip() == CLEAR else reactions
 
         if not changes:
             await interaction.response.send_message(

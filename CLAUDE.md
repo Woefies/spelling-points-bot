@@ -71,7 +71,9 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 
 ## Command help text
 
-`description=` on a command and each `app_commands.describe` string are what Discord shows while someone is typing, and **Discord caps both at 100 characters** — the API rejects the whole sync if any is longer, which takes down every command, not just the offending one. Write them as a hint with a concrete example (`"Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00"`), and keep them in Dutch: the entire user-facing surface is Dutch, while the code and these notes are English.
+`description=` on a command and each `app_commands.describe` string are what Discord shows while someone is typing, and **Discord caps both at 100 characters** — the API rejects the whole sync if any is longer, which takes down every command, not just the offending one. **Command, subcommand and parameter names are English; every description, choice label and reply is Dutch.** That split is the convention here — `add`/`list`/`remove`/`edit` are what Discord users expect to type, while everything read on screen is in the team's language. Do not add a Dutch command name.
+
+Write descriptions as a hint with a concrete example (`"Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00"`), and keep them in Dutch: the entire user-facing surface is Dutch, while the code and these notes are English.
 
 - **`TZ = ZoneInfo("Europe/Amsterdam")` runs at module import.** `tzdata` is not in `requirements.txt`, so this depends entirely on the OS tz database being present in the image. If it isn't, the cog fails to import — since fault isolation landed this only costs you the reminders cog rather than the whole bot, and the startup log names it. Add `tzdata` to requirements if that shows up.
 - Because the cog pins the timezone explicitly, the container's `TZ` env is irrelevant. Don't "fix" reminders by setting `TZ` in `docker-compose.yml`.
@@ -84,7 +86,7 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 
 `/trigger edit` differs from `/reminder edit` on purpose: it takes a `changes` dict rather than keyword arguments, because a trigger legitimately needs a field *cleared*. A lone `-` empties `response` or `reactions`, which the reminder version has no equivalent of — "not given" and "make empty" have to be distinguishable. It refuses an edit that would leave a trigger with neither a reply nor reactions, since that is a row that does nothing. Patterns are matched with `services/variants.compile_phrases`, which wraps `\b…\b` word boundaries around each phrase — that is what keeps the profanity trigger off `kankeren` and `borstkanker`. It cannot keep it off a genuine medical mention, which is a known and accepted limitation. At most one reply fires per message however many triggers match.
 
-`cogs/daily_summary.py` posts the day's leaderboard on weekdays at a configurable time (`/dagoverzicht aan|uit|list`), reading `issues_log` because `scores` only holds running totals. **Timezone trap:** `issues_log.ts` is SQLite's `CURRENT_TIMESTAMP` (UTC) while the reporting day is Amsterdam local, so it queries a UTC *range* built by `_utc_window_for_local_day`, never `DATE(ts)`. A plain date match silently files everything logged between local midnight and 01:00/02:00 into the previous day.
+`cogs/daily_summary.py` posts the day's leaderboard on weekdays at a configurable time (`/summary enable|uit|list`), reading `issues_log` because `scores` only holds running totals. **Timezone trap:** `issues_log.ts` is SQLite's `CURRENT_TIMESTAMP` (UTC) while the reporting day is Amsterdam local, so it queries a UTC *range* built by `_utc_window_for_local_day`, never `DATE(ts)`. A plain date match silently files everything logged between local midnight and 01:00/02:00 into the previous day.
 
 `services/variants.py` is shared by both: `pick_variant` picks one of several `|`-separated phrasings per firing (so recurring output does not go stale), and `compile_phrases` builds the matching regex. Reminders and triggers both store variants in a single text column.
 
@@ -96,7 +98,7 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 
 ## Punishment (`cogs/punishment.py` + `services/punishment.py`)
 
-Times a member out once their mistakes *for the local day* cross a multiple of a configurable threshold (default 20). Ladder is 1/2/5/10/20/30 minutes, and the last rung repeats rather than escalating, so a bad day cannot end in an hour of silence.
+Times a member out once their mistakes *for the local day* cross a multiple of a configurable threshold (default 20). Threshold, ladder and both announcement texts are per-guild settings, not constants — tuning this must not need a redeploy by whoever runs the host. The ladder defaults to 1/2/5/10/20/30 minutes and its last rung repeats rather than escalating, so a bad day cannot end in an hour of silence. Custom texts take `{user}`, `{count}` and `{minutes}`; `render()` falls back to the built-in text when a template is malformed, because admins write these by hand and a stray brace must not swallow the announcement.
 
 **Three modes, off by default.** `warn` announces who *would* have been muted without touching anyone, and exists because this is the only feature that can stop a colleague from talking — the bot still has false positives on names and jargon. Run `warn` before `mute`.
 

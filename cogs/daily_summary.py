@@ -98,9 +98,11 @@ class DailySummaryCog(commands.Cog):
         guild = self.bot.get_guild(guild_id)
         lines = []
         for rank, (user_id, count) in enumerate(rows, start=1):
+            # A mention inside an embed renders as the name but does not notify,
+            # so this addresses people directly without pinging the whole list.
             member = guild.get_member(user_id) if guild else None
-            name = member.display_name if member else f"Gebruiker {user_id}"
-            lines.append(f"{MEDALS.get(rank, f'{rank}.')} **{name}** — {count}")
+            who = member.mention if member else f"Gebruiker {user_id}"
+            lines.append(f"{MEDALS.get(rank, f'{rank}.')} {who} — {count}")
 
             words = by_user.get(user_id, [])
             if words:
@@ -114,48 +116,48 @@ class DailySummaryCog(commands.Cog):
 
     # -------------------------------------------------------------- commands
 
-    dagoverzicht = app_commands.Group(
-        name="dagoverzicht",
+    summary = app_commands.Group(
+        name="summary",
         description="Dagelijkse ranglijst van de spelfouten van die dag, aan het eind van de werkdag",
         default_permissions=discord.Permissions(manage_guild=True),
         guild_only=True,
     )
 
-    @dagoverzicht.command(name="aan", description="Zet het dagoverzicht aan. Standaard elke werkdag om 16:30")
+    @summary.command(name="enable", description="Zet het dagoverzicht aan. Standaard elke werkdag om 16:30")
     @app_commands.describe(
-        kanaal="In welk kanaal het overzicht elke werkdag geplaatst wordt",
-        tijd=f"Tijd in HH:MM (standaard {DEFAULT_TIME}, alleen op werkdagen)",
+        channel="In welk kanaal het overzicht elke werkdag geplaatst wordt",
+        time=f"Tijd in HH:MM (standaard {DEFAULT_TIME}, alleen op werkdagen)",
     )
     async def enable_cmd(
         self,
         interaction: discord.Interaction,
-        kanaal: discord.TextChannel,
-        tijd: str | None = None,
+        channel: discord.TextChannel,
+        time: str | None = None,
     ) -> None:
         when = DEFAULT_TIME
-        if tijd:
+        if time:
             try:
-                when = datetime.strptime(tijd.strip(), "%H:%M").strftime("%H:%M")
+                when = datetime.strptime(time.strip(), "%H:%M").strftime("%H:%M")
             except ValueError:
                 await interaction.response.send_message(
                     "🚫 Ongeldige tijd. Gebruik HH:MM, bijv. `16:30`.", ephemeral=True
                 )
                 return
 
-        self.bot.repo.set_config(interaction.guild_id, CONFIG_CHANNEL, str(kanaal.id))
+        self.bot.repo.set_config(interaction.guild_id, CONFIG_CHANNEL, str(channel.id))
         self.bot.repo.set_config(interaction.guild_id, CONFIG_TIME, when)
         await interaction.response.send_message(
-            f"✅ Dagoverzicht staat aan: elke werkdag om **{when}** in {kanaal.mention}.",
+            f"✅ Dagoverzicht staat aan: elke werkdag om **{when}** in {channel.mention}.",
             ephemeral=True,
         )
 
-    @dagoverzicht.command(name="uit", description="Zet het dagoverzicht uit. De punten blijven gewoon geteld worden")
+    @summary.command(name="disable", description="Zet het dagoverzicht uit. De punten blijven gewoon geteld worden")
     async def disable_cmd(self, interaction: discord.Interaction) -> None:
         self.bot.repo.set_config(interaction.guild_id, CONFIG_CHANNEL, None)
         self.bot.repo.set_config(interaction.guild_id, CONFIG_TIME, None)
         await interaction.response.send_message("🛑 Dagoverzicht staat uit.", ephemeral=True)
 
-    @dagoverzicht.command(name="list", description="Toon het overzicht van vandaag, zonder te wachten tot het eind van de dag")
+    @summary.command(name="list", description="Toon het overzicht van vandaag, zonder te wachten tot het eind van de dag")
     async def list_cmd(self, interaction: discord.Interaction) -> None:
         embed = self._build_embed(interaction.guild_id, datetime.now(TZ))
         await interaction.response.send_message(embed=embed)
