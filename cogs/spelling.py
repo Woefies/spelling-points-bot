@@ -6,7 +6,7 @@ from discord.ext import commands
 from services.cleaner import clean
 from services.detector import detect
 from services.checkers import REGISTRY
-from services.lexicon import CHAT_SLANG
+from services.lexicon import SKIP_WORDS
 
 
 class SpellingCog(commands.Cog):
@@ -30,10 +30,11 @@ class SpellingCog(commands.Cog):
 
         wl = {w.lower() for w in self.bot.settings.whitelist} | {
             w.lower() for w in self.bot.repo.get_whitelist(message.guild.id)
-        } | CHAT_SLANG
+        } | SKIP_WORDS
         ctx = {
             "whitelist": wl,
             "skip_capitalized": self.bot.settings.skip_capitalized,
+            "hunspell_dir": self.bot.settings.hunspell_dir,
         }
 
         all_issues = []

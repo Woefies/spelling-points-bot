@@ -1,27 +1,39 @@
-from spellchecker import SpellChecker  # package is 'pyspellchecker', import name 'spellchecker'
+import logging
 
 from services.checkers.base import Checker, CheckResult, Issue, register
 from services.cleaner import is_noise_word, tokenize
+from services.dictionaries import DEFAULT_HUNSPELL_DIR, load
+
+log = logging.getLogger(__name__)
 
 
 @register("spelling")
 class SpellingChecker(Checker):
     def __init__(self):
-        self._spell = {"en": SpellChecker(language="en"), "nl": SpellChecker(language="nl")}
+        # Loaded on first use, not here: @register instantiates at import time,
+        # before settings exist, and reading a Hunspell dictionary costs a second
+        # or two that should not sit in the import path.
+        self._lookups = None
+
+    def _ensure_loaded(self, ctx) -> None:
+        if self._lookups is not None:
+            return
+        self._lookups, backends = load(ctx.get("hunspell_dir", DEFAULT_HUNSPELL_DIR))
+        log.info(
+            "Spelling dictionaries: %s",
+            ", ".join(f"{lang}={name}" for lang, name in sorted(backends.items())) or "none",
+        )
 
     async def check(self, text, lang, ctx) -> CheckResult:
-        # detected lang only gates whether we check at all; the actual check runs
-        # against every dictionary so code-switched (nl+en) messages don't false-positive.
-        if lang not in self._spell:
+        self._ensure_loaded(ctx)
+        if lang not in self._lookups:
             return CheckResult()
 
         whitelist = ctx.get("whitelist", set())
         skip_cap = ctx.get("skip_capitalized", True)
 
-        issues = []
-        tokens = tokenize(text)
         candidates = []
-        for i, tok in enumerate(tokens):
+        for i, tok in enumerate(tokenize(text)):
             low = tok.lower()
             if low in whitelist:
                 continue
@@ -34,14 +46,11 @@ class SpellingChecker(Checker):
                 continue
             candidates.append(low)
 
-        # a word is only a mistake if unknown in ALL supported dictionaries
-        unknown = set(candidates)
-        for spell in self._spell.values():
-            unknown &= spell.unknown(unknown)
-            if not unknown:
-                break
-
-        for bad in unknown:
-            issues.append(Issue(word=bad, lang=lang, kind="spelling"))
-
+        # A word only counts as a mistake when no dictionary recognises it, so a
+        # message mixing Dutch and English doesn't get punished for either half.
+        issues = [
+            Issue(word=word, lang=lang, kind="spelling")
+            for word in set(candidates)
+            if not any(known(word) for known in self._lookups.values())
+        ]
         return CheckResult(issues=issues)

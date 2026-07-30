@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Discord bot that spell-checks every message (Dutch + English) and tallies "mistake points" per user, per guild. Offline spelling (pyspellchecker, no external API), language auto-detected (langdetect), points in SQLite. Also ships a Dutch grammar checker, a repeated-word checker, scheduled channel reminders, and a version drift-check against GitHub.
+Discord bot that spell-checks every message (Dutch + English) and tallies "mistake points" per user, per guild. Offline spelling (Hunspell via spylls, pyspellchecker as fallback; no external API), language auto-detected (langdetect), points in SQLite. Also ships a Dutch grammar checker, a repeated-word checker, scheduled channel reminders, and a version drift-check against GitHub.
 
 ## Run / dev
 
@@ -44,11 +44,13 @@ Three swap points, each backed by an interface/registry. Adding a feature = drop
 - It's a `@commands.Cog.listener()`, so it's additive — prefix commands still dispatch normally, no `process_commands` call needed.
 - `services/cleaner.py` — `clean()` (pre-check normalization), `tokenize()` (unicode-aware, letters only, keeps case), and `is_noise_word()` (laughter/elongation like `hahaha`, `lmfaooo`). Checkers tokenize the already-cleaned text themselves.
 - `services/detector.py` — langdetect wrapper, `DetectorFactory.seed=0` for determinism, only returns supported langs (`en`/`nl`).
-- `services/lexicon.py` — `CHAT_SLANG`, a frozenset of nl+en internet abbreviations merged into the whitelist on every check.
+- `services/lexicon.py` — `SKIP_WORDS`, the union of `CHAT_SLANG`, `ABBREVIATIONS` and `TECH_TERMS`, merged into the whitelist on every check. Written abbreviations (`enz`, `bijv`, `ipv`) are **not** in any Hunspell dictionary — they are punctuation conventions rather than words — so without this list they read as mistakes. Company-specific words belong in the per-guild whitelist, not here.
+- `services/dictionaries.py` — picks a backend per language: Hunspell via `spylls` when `<lang>.dic` exists under `HUNSPELL_DIR`, else pyspellchecker. Loaded lazily on the first check, because `@register` instantiates checkers at import time when no settings exist yet, and reading a dictionary costs a second or two. Lookups are `lru_cache`d; spylls is a readable reference implementation, not a fast one.
 
 ### Checker behaviour worth knowing before changing it
 
 - `SpellingChecker` skips: whitelisted words, len≤1, noise words, and (when `skip_capitalized`) capitalized non-first tokens (proper-noun heuristic). Side effect: an ALL-CAPS message is effectively unchecked past the first token.
+- Hunspell is what makes Dutch checkable: it applies affix and compounding rules, so `zonnebrandcrème` and `voetbalwedstrijdverslag` pass without being in any list. A flat word list can never hold them — Dutch glues words together without limit — which is why pyspellchecker produced so many false positives. Debian's `hunspell-nl` (built from OpenTaal) is installed in the Dockerfile.
 - A word is only a mistake if unknown in **both** the nl and en dictionaries (deliberate, so code-switched messages don't false-positive). This is why many real misspellings slip through — a Dutch typo that happens to be a valid English word is never flagged.
 - Scoring is inconsistent between checkers by construction: `SpellingChecker` dedups via a `set` (same typo 3× = 1 point), while `repeats` and `dutch_dt` emit one `Issue` per match (3 points).
 - `repeats` honours `ctx["whitelist"]` on top of its own `_ALLOWLIST` (`had`, `dat`, `die` — all of which double legitimately in Dutch). A word an admin has whitelisted must be fine for *every* checker, or whitelisting looks broken to the person who did it.

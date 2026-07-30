@@ -19,6 +19,7 @@ class Settings:
     # When set, slash commands sync to this one guild instead of globally.
     # Guild syncs are instant; global syncs can take up to an hour to appear.
     dev_guild_id: int | None = None
+    hunspell_dir: str = "/usr/share/hunspell"
     whitelist: set[str] = field(default_factory=lambda: {"lol", "haha", "xd", "omg", "brb"})
 
 
@@ -64,6 +65,7 @@ def load_settings() -> Settings:
     github_repo = os.getenv("GITHUB_REPO", defaults.github_repo)
     github_branch = os.getenv("GITHUB_BRANCH", defaults.github_branch)
     dev_guild_id = _parse_optional_int("DEV_GUILD_ID")
+    hunspell_dir = os.getenv("HUNSPELL_DIR", defaults.hunspell_dir)
 
     return Settings(
         token=token,
@@ -77,4 +79,5 @@ def load_settings() -> Settings:
         github_repo=github_repo,
         github_branch=github_branch,
         dev_guild_id=dev_guild_id,
+        hunspell_dir=hunspell_dir,
     )
