@@ -162,6 +162,14 @@ Triggers and config live on `SqliteScoreRepository` rather than in a repo of the
 - `core.hooksPath` is **per-clone local config, never committed**. Enabling it here does nothing for anyone else's checkout — every clone must run `git config core.hooksPath scripts/hooks` once, or its commits land unbumped.
 - Historical caveat: `VERSION` sat at `0.1.0` across every commit up to and including the reminders merge, because the hook was not enabled at the time. Any version comparison against a build from that era is meaningless — `0.1.0` covers both the pre- and post-reminders code.
 
+## Automatic updates
+
+`scripts/auto_update.sh` pulls and rebuilds when GitHub's `VERSION` differs from the running container's, then **verifies the container is still up 25 seconds later and rolls back if it is not** — a container that starts and immediately dies looks healthy for the first few seconds. It tags the current image before touching anything, because resetting git alone would leave the broken image running. Scheduler-agnostic: Synology Task Scheduler, cron and systemd timers all just run the file. Daily rather than per-merge, deliberately — that leaves a window to revert a bad merge before it reaches the host.
+
+It detects whether Docker needs `sudo` rather than hardcoding it, so it works both from a scheduler running as root and from a user in the docker group.
+
+`cogs/version.py` separately announces a new version once per version into a configured channel (`/update enable`). Announcing is not deploying: the two are deliberately separate, so a team that does not want unattended deploys still learns that something is waiting.
+
 ## Deployment
 
 Docker Compose on a NAS/server: `docker compose up -d --build`, `data/` bind-mounted for DB persistence, `restart: unless-stopped`. The image has no healthcheck and runs as root.

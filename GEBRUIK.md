@@ -40,6 +40,7 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/backup create` | Nu een back-up van de configuratie maken |
 | `/backup list` | Bestaande back-ups tonen |
 | `/backup restore` | Een gedownloade back-up terugzetten |
+| `/update enable\|disable` | Melden zodra er een nieuwe versie klaarstaat |
 | `/settings show` | Hoe streng de spellingcheck nu staat |
 | `/settings points\|reply\|minwords\|capitals` | Die strengheid bijstellen |
 | `/backup download` | Nieuwste back-up als bestand, alleen naar jou |
