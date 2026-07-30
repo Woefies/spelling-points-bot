@@ -18,7 +18,20 @@
 # 2 could not determine what is running or what is available.
 set -uo pipefail
 
+# Schedulers hand you a minimal environment. Synology's Task Scheduler in
+# particular runs without /usr/local/bin, which is exactly where Container
+# Manager installs docker — so a script that works over SSH fails silently at
+# 03:00. Put the usual locations back before looking for anything.
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
 cd "$(dirname "$0")/.." || exit 2
+
+for tool in git curl; do
+    command -v "$tool" >/dev/null 2>&1 || {
+        printf 'ERROR: %s not found on PATH (%s)\n' "$tool" "$PATH" >&2
+        exit 2
+    }
+done
 
 REPO="${GITHUB_REPO:-Woefies/spelling-points-bot}"
 BRANCH="${GITHUB_BRANCH:-master}"

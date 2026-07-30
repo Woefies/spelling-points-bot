@@ -170,6 +170,9 @@ controleren of het gelukt is, en moet hij een tweede keer aan de bak.
   een lege regel `PREFIX=` staat (dat brak de `!`-commando's)
 - De bot de permissie **Moderate Members** geven en zijn rol boven de anderen
   zetten, anders kan hij niemand dempen
+- `scripts/auto_update.sh --check` draaien, en werkt dat, hem als dagelijkse taak
+  zetten (DSM: Configuratiescherm → Taakplanner → Maken → **Geplande taak** →
+  Door gebruiker gedefinieerd script, als **root**)
 - Controleren of `hunspell-nl` goed geïnstalleerd is: `/status` in Discord toont
   welk woordenboek actief is
 
