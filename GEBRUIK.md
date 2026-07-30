@@ -28,8 +28,8 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 
 | Commando | Wat het doet |
 |---|---|
-| `/whitelist add <woord>` | Woord voortaan goedkeuren in deze server |
-| `/whitelist remove <woord>` | Woord weer meetellen |
+| `/whitelist add <woorden>` | Woorden goedkeuren, meerdere met komma's |
+| `/whitelist remove <woorden>` | Woorden weer laten meetellen |
 | `/whitelist list` | Toon welke woorden goedgekeurd zijn |
 | `/say` | De bot iets laten zeggen — niemand ziet dat jij het was |
 | `/reminder add\|list\|remove` | Eigen herinneringen beheren |
