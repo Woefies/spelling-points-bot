@@ -35,7 +35,7 @@ Three swap points, each backed by an interface/registry. Adding a feature = drop
 2. **Checkers** (`services/checkers/`) — pluggable check engines. Each is a `Checker` subclass decorated `@register("name")` (see `base.py`); the decorator **instantiates once** and stores the instance in `REGISTRY`. The `on_message` flow runs every registered checker and sums their `Issue`s into points. **Gotcha:** a new checker module must be imported in `services/checkers/__init__.py` so `@register` actually runs — unlike cogs, checkers are NOT auto-discovered. Currently registered: `spelling`, `repeats`, `dutch_dt`.
 
 3. **Repository** (`repositories/`) — storage interface `ScoreRepository` (`base.py`), default impl `SqliteScoreRepository` (`sqlite_repo.py`). Instantiated directly in `core/bot.py:__init__` (`self.repo`). To swap storage, change that one line. SQLite conn is `check_same_thread=False` guarded by a `threading.Lock` (discord.py runs listeners on the event loop but repo is sync).
-   - **Known deviation:** `SqliteReminderRepository` (`repositories/reminders_repo.py`) has no ABC and is instantiated inside `RemindersCog.__init__`, not in `core/bot.py`. It opens a *second* SQLite connection to the same file with its own lock. Neither connection sets `journal_mode=WAL` or a busy `timeout`, so concurrent writes can hit `database is locked`. New storage should follow the `ScoreRepository` pattern instead of copying this one.
+   - **Known deviation:** `SqliteReminderRepository` (`repositories/reminders_repo.py`) has no ABC and is instantiated inside `RemindersCog.__init__`, not in `core/bot.py`. It opens a *second* SQLite connection to the same file with its own lock. Both connections now set `journal_mode=WAL` (persistent on the file, so setting it twice is a no-op) and a 5-second busy `timeout` — without those, a read during the other connection's write transaction raises `database is locked`, and writes land on every message plus a nightly backup and a daily summary. New storage should still follow the `ScoreRepository` pattern instead of copying this one.
 
 ### Message flow (`cogs/spelling.py:on_message`)
 
@@ -75,7 +75,7 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 
 Write descriptions as a hint with a concrete example (`"Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00"`), and keep them in Dutch: the entire user-facing surface is Dutch, while the code and these notes are English.
 
-- **`TZ = ZoneInfo("Europe/Amsterdam")` runs at module import.** `tzdata` is not in `requirements.txt`, so this depends entirely on the OS tz database being present in the image. If it isn't, the cog fails to import — since fault isolation landed this only costs you the reminders cog rather than the whole bot, and the startup log names it. Add `tzdata` to requirements if that shows up.
+- **`TZ = ZoneInfo("Europe/Amsterdam")` runs at module import**, so a missing tz database stops this cog from loading. `tzdata` is pinned in `requirements.txt` for exactly that reason. Do not remove it on the grounds that the base image "probably has zoneinfo": fault isolation means this cog failing no longer takes the bot down, which turns a loud crash into every reminder silently never firing — the worse of the two failure modes.
 - Because the cog pins the timezone explicitly, the container's `TZ` env is irrelevant. Don't "fix" reminders by setting `TZ` in `docker-compose.yml`.
 - Send failures are swallowed (`except discord.HTTPException: pass`), so a missing *Mention @everyone* permission looks like silence, not an error.
 - `exists_similar()` matches on message+time+frequency only, ignoring channel — re-running `/reminder setup` with a different channel reports "already exist" instead of moving them. There is no edit command.
@@ -106,11 +106,21 @@ Times a member out once their mistakes *for the local day* cross a multiple of a
 
 `services/punishment.py` holds the arithmetic and imports no discord.py, so the escalation is testable on its own. `crossed()` compares tiers rather than testing for an exact multiple: one message can carry several mistakes and jump 18 → 21 straight past a boundary.
 
-The spelling cog stays unaware of any of this — it fires `bot.dispatch("mistakes_recorded", message, points)` and the punishment cog listens. Timeouts need **Moderate Members** and the bot's role above the target's; Discord refuses to time out admins and the owner at all, which is reported in-channel rather than swallowed.
+The spelling cog stays unaware of any of this — it fires `bot.dispatch("mistakes_recorded", message, points)` and the punishment cog listens.
+
+A trigger carrying `punish_minutes` dispatches `trigger_punishment` to the same cog rather than calling `timeout()` itself. That keeps `/punish mode` the single switch governing every timeout in the bot: a trigger cannot quietly bypass warn-first mode. Trigger punishments fire on a single match, unlike the spelling ladder which needs a threshold crossing, so warn mode matters more here, not less.
+
+`trigger_hits` records who set off which trigger, feeding `{count}` in trigger responses. It is a separate table rather than a `kind` in `issues_log` on purpose — the daily summary, `/flagged` and the punishment counter all read that log, and trigger hits are not spelling mistakes. Timeouts need **Moderate Members** and the bot's role above the target's; Discord refuses to time out admins and the owner at all, which is reported in-channel rather than swallowed.
 
 ## Rate limiting
 
 `RateLimitedTree` in `core/bot.py` puts one shared cooldown (5 uses / 15 s / user) in front of every slash command via `interaction_check`, rather than a decorator per command that a new cog could forget. It lets non-application-command interactions through untouched — autocomplete fires on every keystroke and must never be throttled.
+
+## Self-service diagnostics
+
+`cogs/insights.py` (`/flagged`, `/status`), plus `/backup download` and `/whitelist export`, exist so nothing routine needs a shell on the host. The person with SSH access is one holiday away from being a single point of failure, and the flagged-words report in particular was needed twice in the first week.
+
+`/status` reports the live dictionary backend by reading `REGISTRY["spelling"].backends`, which is why `SpellingChecker` keeps that attribute — "did the Hunspell change actually land?" would otherwise only be answerable from the startup log. It is empty until the first message is checked, since dictionaries load lazily.
 
 ## Backups
 
@@ -124,17 +134,20 @@ The backup cog pins a fixed UTC+1 offset instead of `ZoneInfo`, so it does not i
 
 ## Data model (SQLite, `data/points.db`)
 
-`scores` (guild_id, user_id, mistakes — upserted), `whitelist` (guild_id, word — per-guild ignored words), `issues_log` (append-only audit of every flagged word with lang/kind/timestamp, indexed on `(guild_id, ts)` for the daily summary), `triggers` (keyword → response/reactions), `guild_config` (per-guild key/value, currently the daily-summary channel and time), `reminders` (schedule rows, see above). Tables auto-created on repo init by whichever repo owns them.
+`scores` (guild_id, user_id, mistakes — upserted), `whitelist` (guild_id, word — per-guild ignored words), `issues_log` (append-only audit of every flagged word with lang/kind/timestamp, indexed on `(guild_id, ts)` for the daily summary), `triggers` (keyword → response/reactions/punish_minutes), `trigger_hits` (who set off which trigger, feeds `{count}`), `guild_config` (per-guild key/value, currently the daily-summary channel and time), `reminders` (schedule rows, see above). Tables auto-created on repo init by whichever repo owns them. **`CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists**, so a column added later needs an explicit `PRAGMA table_info` check plus `ALTER TABLE` — see `punish_minutes` on `triggers`. Every existing deployment predates any column you add.
+
+`adjust_points()` binds its delta twice, and the duplication is load-bearing: `excluded.mistakes` is the value the INSERT *would* have written, already clamped to zero for a negative delta, so `mistakes + excluded.mistakes` silently no-ops on every subtraction. The UPDATE branch has to see the raw delta.
 
 Triggers and config live on `SqliteScoreRepository` rather than in a repo of their own, deliberately: a separate repo would mean a third SQLite connection to the same file, which is the problem flagged above. The class name is now narrower than what it stores.
 
 `issues_log` grows unbounded and has no index beyond the implicit rowid; there is no pruning job.
 
-`scripts/report_flagged.py` reads `issues_log` offline to surface the most-frequently flagged words as default-whitelist candidates (stdlib only, no bot import). Its `DEFAULT_WHITELIST` constant is a hand-maintained copy of `Settings.whitelist` and does **not** include `CHAT_SLANG`, so its "already default" column under-reports — keep it in sync manually or it drifts.
+`scripts/report_flagged.py` reads `issues_log` offline to surface the most-frequently flagged words as default-whitelist candidates (stdlib only, no bot import). It groups by `kind` and can filter on it (`--kind spelling|repeat|grammar_nl`) — without that, "this word is whitelisted but still gets flagged" is unanswerable, because the whitelist only ever applied to the spelling checker. Note the table is a historical log: a word whitelisted today still appears for every time it was flagged before that. Its `DEFAULT_WHITELIST` constant is a hand-maintained copy of `Settings.whitelist` and does **not** include `CHAT_SLANG`, so its "already default" column under-reports — keep it in sync manually or it drifts.
 
 ## Conventions
 
 - Config flows one way: `.env` → `load_settings()` → `Settings` dataclass → `bot.settings`. Read config off `bot.settings`, never `os.getenv` outside `core/config.py` (`scripts/` are standalone and exempt).
+- **Four of those settings are overridable per guild** — `points_per_mistake`, `reply_on_mistake`, `min_words_for_detect`, `skip_capitalized`. `services/guild_settings.resolve()` merges stored overrides over the `.env` defaults, and `cogs/spelling.py` reads the result rather than `bot.settings` directly. They live in `guild_config`, so `repo.config_for()` fetches them in one read — this runs on every message. A stored value that will not parse falls back to the default with a warning rather than raising: a restored or hand-edited database must not stop the checker. These four are the emergency brake (points to 0, replies off), which is exactly why they cannot stay behind shell access to the host.
 - `/whitelist add|remove` take a comma-separated list, not a single word: the flagged-words report produces batches, and one command per word does not scale. `/whitelist remove` autocompletes from the guild's own entries — on a hybrid command that has to go through `@cmd.autocomplete("param")` rather than the `@app_commands.autocomplete` decorator. Its filter reads the text after the last comma, so suggestions keep working while typing a list.
 
 `Settings.whitelist` is a hardcoded default set merged with the DB whitelist at check time — global-ish defaults live in config, per-guild additions in DB. Genuinely-global slang belongs in `services/lexicon.py` instead.
@@ -148,6 +161,20 @@ Triggers and config live on `SqliteScoreRepository` rather than in a repo of the
 - A `pre-commit` hook at `scripts/hooks/pre-commit` auto-bumps the `VERSION` patch on every commit (enable with `git config core.hooksPath scripts/hooks`); a manually staged `VERSION` change is respected instead.
 - `core.hooksPath` is **per-clone local config, never committed**. Enabling it here does nothing for anyone else's checkout — every clone must run `git config core.hooksPath scripts/hooks` once, or its commits land unbumped.
 - Historical caveat: `VERSION` sat at `0.1.0` across every commit up to and including the reminders merge, because the hook was not enabled at the time. Any version comparison against a build from that era is meaningless — `0.1.0` covers both the pre- and post-reminders code.
+
+## Automatic updates
+
+`scripts/auto_update.sh` pulls and rebuilds when GitHub's `VERSION` differs from the running container's, then **verifies the container is still up 25 seconds later and rolls back if it is not** — a container that starts and immediately dies looks healthy for the first few seconds. It tags the current image before touching anything, because resetting git alone would leave the broken image running. Scheduler-agnostic: Synology Task Scheduler, cron and systemd timers all just run the file. Daily rather than per-merge, deliberately — that leaves a window to revert a bad merge before it reaches the host.
+
+It detects whether Docker needs `sudo` rather than hardcoding it, so it works both from a scheduler running as root and from a user in the docker group.
+
+**It also resets `PATH` before doing anything.** Schedulers hand you a minimal environment — Synology's Task Scheduler in particular runs without `/usr/local/bin`, which is exactly where Container Manager installs `docker`. Without the reset the script works when tested over SSH and fails at 03:00, reporting that it cannot reach Docker rather than that it cannot find it. `git` and `curl` are checked up front for the same reason, so a missing tool names itself instead of surfacing three steps later as something else.
+
+`/update now` drops a request file in the mounted data volume, which the script picks up on its next run. **The bot deliberately cannot rebuild itself** — that would mean mounting the Docker socket into a container that reacts to patterns taken from user messages, i.e. host-level access behind a trigger anyone can type. The file is cleared *before* the rebuild rather than after, so a request that produces a failing build does not retry on every scheduled run forever; `--check` leaves it alone, since check mode must change nothing.
+
+**The bot cannot watch its own replacement**, so the outcome of an update reaches Discord two ways. The script writes a result file that the *next* process reads once and deletes, covering success and both failure modes (build failed, container did not stay up). For a rebuild someone did by hand — no script, no result file — the running version simply differing from the last one recorded in `guild_config` produces the same announcement. A plain restart says nothing, and so does a first-ever start with nothing recorded.
+
+`cogs/version.py` separately announces a new version once per version into a configured channel (`/update enable`). Announcing is not deploying: the two are deliberately separate, so a team that does not want unattended deploys still learns that something is waiting.
 
 ## Deployment
 

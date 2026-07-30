@@ -16,6 +16,7 @@ class Trigger:
     pattern: str
     response: str | None  # None = react only, don't reply
     reactions: str | None  # comma-separated emoji, None = reply only
+    punish_minutes: int | None  # timeout length, None = no punishment
 
 
 class ScoreRepository(ABC):
@@ -103,6 +104,17 @@ class ScoreRepository(ABC):
         ...
 
     @abstractmethod
+    def top_flagged(
+        self, guild_id: int, start_utc: str, end_utc: str, kind: str | None, limit: int
+    ) -> list[tuple[str, str, int, int]]:
+        """(word, kind, hits, distinct users), most-flagged first."""
+        ...
+
+    @abstractmethod
+    def total_issues(self, guild_id: int) -> int:
+        ...
+
+    @abstractmethod
     def set_config(self, guild_id: int, key: str, value: str | None) -> None:
         """Store a per-guild setting; None deletes it."""
         ...
@@ -112,8 +124,25 @@ class ScoreRepository(ABC):
         ...
 
     @abstractmethod
+    def log_trigger_hit(self, guild_id: int, trigger_id: int, user_id: int) -> None:
+        ...
+
+    @abstractmethod
+    def count_trigger_hits(self, guild_id: int, trigger_id: int, user_id: int) -> int:
+        ...
+
+    @abstractmethod
+    def adjust_points(self, guild_id: int, user_id: int, delta: int) -> int:
+        ...
+
+    @abstractmethod
     def clear(self, guild_id: int, what: str) -> int:
         """Delete every row for this guild from one resettable table. Returns the count."""
+        ...
+
+    @abstractmethod
+    def config_for(self, guild_id: int) -> dict[str, str]:
+        """Every setting for one guild in a single read — this runs per message."""
         ...
 
     @abstractmethod

@@ -7,6 +7,8 @@ data/*.db
 data/*.sqlite*
 data/*.csv
 data/backups/
+data/.update-requested
+data/.update-result
 !data/.gitkeep
 
 # local Claude Code settings

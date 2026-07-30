@@ -3,3 +3,7 @@ pyspellchecker>=0.8
 langdetect>=1.0.9
 python-dotenv>=1.0
 spylls>=0.1.7
+# cogs/reminders.py builds ZoneInfo("Europe/Amsterdam") at import. Without a tz
+# database that cog fails to load — and since cogs load independently, that now
+# silently disables every reminder instead of crashing loudly.
+tzdata>=2024.1

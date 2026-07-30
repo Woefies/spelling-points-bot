@@ -14,11 +14,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from services.punishment import format_minutes, render
 from services.variants import compile_phrases, pick_variant
 
 log = logging.getLogger(__name__)
 
 CLEAR = "-"  # sentinel in /trigger edit meaning "empty this field"
+FALLBACK_RESPONSE = "{user} — let op je woorden."
 
 class TriggersCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -34,6 +36,8 @@ class TriggersCog(commands.Cog):
             if not compile_phrases(trig.pattern).search(message.content):
                 continue
 
+            self.bot.repo.log_trigger_hit(message.guild.id, trig.id, message.author.id)
+
             for emoji in _reaction_list(trig.reactions):
                 try:
                     await message.add_reaction(emoji)
@@ -44,14 +48,32 @@ class TriggersCog(commands.Cog):
             # otherwise a single sentence can make the bot spam the channel.
             if trig.response and not replied:
                 replied = True
+                text = render(
+                    pick_variant(trig.response),
+                    FALLBACK_RESPONSE,
+                    user=message.author.mention,
+                    count=self.bot.repo.count_trigger_hits(
+                        message.guild.id, trig.id, message.author.id
+                    ),
+                    minutes=format_minutes(trig.punish_minutes or 0),
+                )
                 try:
+                    # A trigger that mutes has to be allowed to address the person;
+                    # one that only jokes should never ping.
                     await message.reply(
-                        pick_variant(trig.response),
+                        text,
                         mention_author=False,
-                        allowed_mentions=discord.AllowedMentions.none(),
+                        allowed_mentions=discord.AllowedMentions(
+                            users=bool(trig.punish_minutes)
+                        ),
                     )
                 except discord.HTTPException:
                     log.warning("Could not reply for trigger %d", trig.id)
+
+            if trig.punish_minutes:
+                # The punishment cog owns every timeout, so /punish mode stays the
+                # single switch that governs whether anyone actually gets muted.
+                self.bot.dispatch("trigger_punishment", message, trig)
 
     # --------------------------------------------------------- autocomplete
 
@@ -62,6 +84,8 @@ class TriggersCog(commands.Cog):
         choices = []
         for trig in self.bot.repo.list_triggers(interaction.guild_id):
             what = trig.reactions or (trig.response or "").split("|")[0].strip()
+            if trig.punish_minutes:
+                what = f"⏱️{trig.punish_minutes}m {what}".strip()
             label = f"#{trig.id} · {trig.pattern} → {what}"
             if len(label) > 100:
                 label = label[:97] + "..."
@@ -106,9 +130,12 @@ class TriggersCog(commands.Cog):
             )
             return
 
-        trigger_id = self.bot.repo.add_trigger(interaction.guild_id, words, response, reactions)
+        trigger_id = self.bot.repo.add_trigger(
+            interaction.guild_id, words, response, reactions, minutes
+        )
+        tail = f"\n⚠️ Dempt **{format_minutes(minutes)}** — {_punish_note(self.bot, interaction.guild_id)}" if minutes else ""
         await interaction.response.send_message(
-            f"✅ Trigger **#{trigger_id}** aangemaakt op: `{words}`",
+            f"✅ Trigger **#{trigger_id}** aangemaakt op: `{words}`{tail}",
             ephemeral=True,
         )
 
@@ -119,6 +146,7 @@ class TriggersCog(commands.Cog):
         words="Nieuwe schrijfwijzen, gescheiden met |. Leeg laten = ongewijzigd",
         response="Nieuw antwoord, varianten met |. Typ een - om het antwoord te wissen",
         reactions="Nieuwe emoji, gescheiden door kommas. Typ een - om ze te wissen",
+        minutes="Timeout in minuten. Typ 0 om de straf te verwijderen",
     )
     async def edit_cmd(
         self,
@@ -127,6 +155,7 @@ class TriggersCog(commands.Cog):
         words: str | None = None,
         response: str | None = None,
         reactions: str | None = None,
+        minutes: app_commands.Range[int, 0, 1440] | None = None,
     ) -> None:
         existing = self.bot.repo.get_trigger(interaction.guild_id, id)
         if existing is None:
@@ -144,6 +173,10 @@ class TriggersCog(commands.Cog):
             changes["response"] = None if response.strip() == CLEAR else response
         if reactions is not None:
             changes["reactions"] = None if reactions.strip() == CLEAR else reactions
+        if minutes is not None:
+            # 0 rather than "-" here: the field is numeric, so a sentinel string
+            # would not survive Discord's own validation.
+            changes["punish_minutes"] = minutes or None
 
         if not changes:
             await interaction.response.send_message(
@@ -175,6 +208,8 @@ class TriggersCog(commands.Cog):
             does.append(f"reageert met {updated.reactions}")
         if updated.response:
             does.append(f"{len(updated.response.split('|'))} antwoordvariant(en)")
+        if updated.punish_minutes:
+            does.append(f"dempt {format_minutes(updated.punish_minutes)}")
         await interaction.response.send_message(
             f"✏️ Trigger **#{id}** aangepast: `{updated.pattern}` · " + " · ".join(does),
             ephemeral=True,
@@ -199,6 +234,8 @@ class TriggersCog(commands.Cog):
             if trig.response:
                 count = len(trig.response.split("|"))
                 parts.append(f"{count} antwoordvariant(en)")
+            if trig.punish_minutes:
+                parts.append(f"⏱️ dempt {format_minutes(trig.punish_minutes)}")
             lines.append(" · ".join(parts))
         embed.description = "\n".join(lines)
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -213,6 +250,16 @@ class TriggersCog(commands.Cog):
             await interaction.response.send_message(
                 f"🚫 Geen trigger gevonden met ID **{id}**.", ephemeral=True
             )
+
+
+def _punish_note(bot, guild_id: int) -> str:
+    """Say plainly whether this trigger will actually mute anyone yet."""
+    from cogs.punishment import CONFIG_MODE, MODE_LABELS
+
+    mode = bot.repo.get_config(guild_id, CONFIG_MODE) or "off"
+    if mode == "mute":
+        return "straffen staan aan, dit dempt echt"
+    return f"straffen staan op **{MODE_LABELS[mode]}**, dus er wordt nog niemand gedempt"
 
 
 def _reaction_list(reactions: str | None) -> list[str]:

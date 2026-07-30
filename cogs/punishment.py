@@ -117,6 +117,42 @@ class PunishmentCog(commands.Cog):
         template = self._text(guild_id, CONFIG_MUTE_TEXT, DEFAULT_MUTE_TEXT)
         await self._say(message, render(template, DEFAULT_MUTE_TEXT, **values))
 
+    @commands.Cog.listener()
+    async def on_trigger_punishment(self, message: discord.Message, trigger) -> None:
+        """Dispatched by the triggers cog when a matched trigger carries a timeout.
+
+        Routed through this cog so /punish mode remains the one switch that
+        decides whether anybody is actually silenced — a trigger cannot quietly
+        bypass the warn-first setting.
+        """
+        mode = self._mode(message.guild.id)
+        if mode == MODE_OFF:
+            return
+
+        minutes = trigger.punish_minutes
+        if mode == MODE_WARN:
+            await self._say(
+                message,
+                f"⚠️ {message.author.mention} zou hiervoor **{format_minutes(minutes)}** "
+                f"gemute worden.\n_De bot waarschuwt alleen — er wordt nog niemand gedempt._",
+            )
+            return
+
+        try:
+            await message.author.timeout(
+                timedelta(minutes=minutes), reason=f"trigger: {trigger.pattern}"
+            )
+        except discord.Forbidden:
+            log.warning("Could not time out %s for trigger %d", message.author, trigger.id)
+            await self._say(
+                message,
+                f"⚠️ {message.author.mention} zou **{format_minutes(minutes)}** gemute "
+                f"worden, maar dat lukt niet. Mist de bot *Moderate Members*, of staat "
+                f"zijn rol te laag?",
+            )
+        except discord.HTTPException:
+            log.exception("Trigger timeout failed for %s", message.author)
+
     async def _say(self, message: discord.Message, text: str) -> None:
         try:
             # users=True on purpose: the point is that the person actually hears it.
