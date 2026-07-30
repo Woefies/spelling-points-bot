@@ -18,6 +18,8 @@ from services.variants import compile_phrases, pick_variant
 
 log = logging.getLogger(__name__)
 
+CLEAR = "-"  # sentinel in /trigger edit meaning "empty this field"
+
 class TriggersCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -107,6 +109,74 @@ class TriggersCog(commands.Cog):
         trigger_id = self.bot.repo.add_trigger(interaction.guild_id, woorden, antwoord, reacties)
         await interaction.response.send_message(
             f"✅ Trigger **#{trigger_id}** aangemaakt op: `{woorden}`",
+            ephemeral=True,
+        )
+
+    @trigger.command(name="edit", description="Wijzig de woorden, het antwoord of de reacties van een trigger")
+    @app_commands.autocomplete(id=_trigger_choices)
+    @app_commands.describe(
+        id="Kies de trigger die je wilt aanpassen",
+        woorden="Nieuwe schrijfwijzen, gescheiden met |. Leeg laten = ongewijzigd",
+        antwoord="Nieuw antwoord, varianten met |. Typ een - om het antwoord te wissen",
+        reacties="Nieuwe emoji, gescheiden door kommas. Typ een - om ze te wissen",
+    )
+    async def edit_cmd(
+        self,
+        interaction: discord.Interaction,
+        id: int,
+        woorden: str | None = None,
+        antwoord: str | None = None,
+        reacties: str | None = None,
+    ) -> None:
+        existing = self.bot.repo.get_trigger(interaction.guild_id, id)
+        if existing is None:
+            await interaction.response.send_message(
+                f"🚫 Geen trigger met ID **{id}**. Bekijk ze met `/trigger list`.", ephemeral=True
+            )
+            return
+
+        # A lone "-" means "make this empty", which is different from leaving the
+        # field out. Without it there would be no way to drop a reply or the emoji.
+        changes: dict = {}
+        if woorden is not None:
+            changes["pattern"] = woorden
+        if antwoord is not None:
+            changes["response"] = None if antwoord.strip() == CLEAR else antwoord
+        if reacties is not None:
+            changes["reactions"] = None if reacties.strip() == CLEAR else reacties
+
+        if not changes:
+            await interaction.response.send_message(
+                "🚫 Vul minstens één veld in dat je wilt wijzigen.", ephemeral=True
+            )
+            return
+
+        if not changes.get("pattern", existing.pattern).strip():
+            await interaction.response.send_message(
+                "🚫 `woorden` mag niet leeg zijn — dan weet de bot nergens op te letten.",
+                ephemeral=True,
+            )
+            return
+
+        response = changes.get("response", existing.response)
+        reactions = changes.get("reactions", existing.reactions)
+        if not response and not reactions:
+            await interaction.response.send_message(
+                "🚫 Dan blijft er niets over: houd een `antwoord` of `reacties` over, "
+                "anders doet de trigger niets. Verwijderen kan met `/trigger remove`.",
+                ephemeral=True,
+            )
+            return
+
+        self.bot.repo.update_trigger(interaction.guild_id, id, changes)
+        updated = self.bot.repo.get_trigger(interaction.guild_id, id)
+        does = []
+        if updated.reactions:
+            does.append(f"reageert met {updated.reactions}")
+        if updated.response:
+            does.append(f"{len(updated.response.split('|'))} antwoordvariant(en)")
+        await interaction.response.send_message(
+            f"✏️ Trigger **#{id}** aangepast: `{updated.pattern}` · " + " · ".join(does),
             ephemeral=True,
         )
 

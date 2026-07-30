@@ -71,6 +71,18 @@ class ScoreRepository(ABC):
         ...
 
     @abstractmethod
+    def get_trigger(self, guild_id: int, trigger_id: int) -> Trigger | None:
+        ...
+
+    @abstractmethod
+    def update_trigger(self, guild_id: int, trigger_id: int, changes: dict) -> bool:
+        """Patch the given columns. A value of None clears that column, so the
+        caller decides what 'not given' versus 'make empty' means — unlike the
+        reminder equivalent, a trigger legitimately needs its reply or its
+        reactions removed."""
+        ...
+
+    @abstractmethod
     def remove_trigger(self, guild_id: int, trigger_id: int) -> bool:
         ...
 

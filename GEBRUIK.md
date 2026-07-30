@@ -34,6 +34,7 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/reminder add\|list\|remove` | Eigen herinneringen beheren |
 | `/reminder edit <id>` | Tekst, tijd, kanaal of mention aanpassen |
 | `/trigger add\|list\|remove` | Eigen trefwoorden beheren |
+| `/trigger edit <id>` | Woorden, antwoord of reacties aanpassen |
 | `/dagoverzicht aan\|uit\|nu` | Het dagelijkse overzicht regelen |
 | `/backup nu` | Nu een back-up van de configuratie maken |
 | `/backup lijst` | Bestaande back-ups tonen |
@@ -43,7 +44,7 @@ Bij `/reminder add` en `/trigger add` kun je meerdere teksten scheiden met een
 `|`. De bot kiest er elke keer willekeurig één, zodat een dagelijks bericht niet
 gaat vervelen.
 
-Bij `/reminder edit`, `/reminder remove` en `/trigger remove` hoef je geen
+Bij `/reminder edit`, `/reminder remove`, `/trigger edit` en `/trigger remove` hoef je geen
 nummer te onthouden — je kiest uit een lijst zodra je begint te typen.
 
 `/reset` maakt altijd eerst een back-up voordat er iets weggegooid wordt, en
