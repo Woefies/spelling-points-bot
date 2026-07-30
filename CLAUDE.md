@@ -51,7 +51,8 @@ Three swap points, each backed by an interface/registry. Adding a feature = drop
 - `SpellingChecker` skips: whitelisted words, len≤1, noise words, and (when `skip_capitalized`) capitalized non-first tokens (proper-noun heuristic). Side effect: an ALL-CAPS message is effectively unchecked past the first token.
 - A word is only a mistake if unknown in **both** the nl and en dictionaries (deliberate, so code-switched messages don't false-positive). This is why many real misspellings slip through — a Dutch typo that happens to be a valid English word is never flagged.
 - Scoring is inconsistent between checkers by construction: `SpellingChecker` dedups via a `set` (same typo 3× = 1 point), while `repeats` and `dutch_dt` emit one `Issue` per match (3 points).
-- Known false positives, do not "fix" the symptom without checking these: `dutch_dt`'s `als→dan` rule fires on the perfectly correct "beter/leuker/sneller **als** je …" (conditional *if*), and `repeats` flags the ordinary Dutch "ik denk **dat dat** goed is" (only `had` is allowlisted).
+- `repeats` honours `ctx["whitelist"]` on top of its own `_ALLOWLIST` (`had`, `dat`, `die` — all of which double legitimately in Dutch). A word an admin has whitelisted must be fine for *every* checker, or whitelisting looks broken to the person who did it.
+- `dutch_dt` is the exception and cannot honour the whitelist: it reports a rule name (`als→dan`), not a word, so there is nothing to match against. Its `als→dan` rule still fires on the perfectly correct "beter/leuker/sneller **als** je …" (conditional *if*), and the only fix is dropping the rule.
 - The reply on mistake (`cogs/spelling.py`) is **not** wrapped in try/except, unlike the ❌ reaction right above it — missing send permission or a deleted message raises inside `on_message`.
 
 ## Reminders (`cogs/reminders.py` + `repositories/reminders_repo.py`)
