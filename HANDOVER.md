@@ -23,11 +23,11 @@ collega. Python 3.12, discord.py, SQLite.
 
 | | Versie |
 |---|---|
-| Lokale branch `task/trigger-edit` | `0.2.20` |
+| Lokale branch `task/trigger-edit` | `0.2.21` |
 | `master` | `0.2.17` |
 | Draaiende bot op de NAS | **veel ouder** — zie hieronder |
 
-**Drie commits wachten in PR #18** op `task/trigger-edit`: `9aa36d4`
+**Vier commits wachten in PR #18** op `task/trigger-edit`: `9aa36d4`
 (checker-kolom in het foutenrapport), `791b50a` (`/flagged`, `/status`,
 `/backup download`, `/whitelist export`) en `ba27c6b` (`tzdata` vastgezet, WAL
 op beide SQLite-verbindingen). Die moet eerst gemerged worden — zie de
