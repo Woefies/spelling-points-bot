@@ -31,18 +31,23 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/whitelist add <woord>` | Woord voortaan goedkeuren in deze server |
 | `/whitelist remove <woord>` | Woord weer meetellen |
 | `/say` | De bot iets laten zeggen — niemand ziet dat jij het was |
-| `/reminder preset` | Alle vaste reminders in één keer aanmaken |
 | `/reminder add\|list\|remove` | Eigen herinneringen beheren |
 | `/reminder edit <id>` | Tekst, tijd, kanaal of mention aanpassen |
-| `/trigger preset` | De vaste triggers aanzetten |
 | `/trigger add\|list\|remove` | Eigen trefwoorden beheren |
 | `/dagoverzicht aan\|uit\|nu` | Het dagelijkse overzicht regelen |
 | `/backup nu` | Nu een back-up van de configuratie maken |
 | `/backup lijst` | Bestaande back-ups tonen |
+| `/reset` | Herinneringen, triggers, whitelist of punten wissen |
 
 Bij `/reminder add` en `/trigger add` kun je meerdere teksten scheiden met een
 `|`. De bot kiest er elke keer willekeurig één, zodat een dagelijks bericht niet
 gaat vervelen.
+
+Bij `/reminder edit`, `/reminder remove` en `/trigger remove` hoef je geen
+nummer te onthouden — je kiest uit een lijst zodra je begint te typen.
+
+`/reset` maakt altijd eerst een back-up voordat er iets weggegooid wordt, en
+vraagt om een expliciete bevestiging.
 
 Moet een herinnering meerdere keren per dag afgaan, vul dan meerdere tijden in
 gescheiden door komma's: `09:00, 11:00, 13:00, 15:00, 17:00`. Dat is één

@@ -1,8 +1,11 @@
 """Triggers cog: react to keywords in messages with a reply, emoji, or both.
 
 Separate from the spelling checkers on purpose — a trigger is a social nudge, not
-a mistake, so it awards no points and is configured per guild at runtime rather
-than in code.
+a mistake, so it awards no points.
+
+No trigger text lives in this file: every trigger is created at runtime with
+/trigger add and stored in the database, so changing one never needs a code
+change or a redeploy.
 """
 
 import logging
@@ -14,21 +17,6 @@ from discord.ext import commands
 from services.variants import compile_phrases, pick_variant
 
 log = logging.getLogger(__name__)
-
-# Seeded by /trigger preset: (pattern, response, reactions)
-PK_TRIGGERS: list[tuple[str, str | None, str | None]] = [
-    (
-        "thuiswerken|thuis werken|thuis aan het werk",
-        "Jongens...vergeet niet dat we een kantoormentaliteit hebben bij PK!"
-        " | Maximaal 1 dag in de week thuiswerken!"
-        " | Thuiswerken? Bij PK is de koffie beter. ☕"
-        " | Ik hoor 'thuiswerken'. Ik hoor ook 'maximaal 1 dag per week'. 👀"
-        " | De bureaustoel mist je.",
-        None,
-    ),
-    ("kanker|kkr|kanher|kenker", None, "👎,❌"),
-]
-
 
 class TriggersCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -63,6 +51,23 @@ class TriggersCog(commands.Cog):
                 except discord.HTTPException:
                     log.warning("Could not reply for trigger %d", trig.id)
 
+    # --------------------------------------------------------- autocomplete
+
+    async def _trigger_choices(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        term = current.lower()
+        choices = []
+        for trig in self.bot.repo.list_triggers(interaction.guild_id):
+            what = trig.reactions or (trig.response or "").split("|")[0].strip()
+            label = f"#{trig.id} · {trig.pattern} → {what}"
+            if len(label) > 100:
+                label = label[:97] + "..."
+            if term and term not in label.lower():
+                continue
+            choices.append(app_commands.Choice(name=label, value=trig.id))
+        return choices[:25]
+
     # -------------------------------------------------------------- commands
 
     trigger = app_commands.Group(
@@ -71,22 +76,6 @@ class TriggersCog(commands.Cog):
         default_permissions=discord.Permissions(manage_guild=True),
         guild_only=True,
     )
-
-    @trigger.command(name="preset", description="Zet de vaste PK-triggers aan: thuiswerken en schelden")
-    async def preset_cmd(self, interaction: discord.Interaction) -> None:
-        created = 0
-        for pattern, response, reactions in PK_TRIGGERS:
-            if self.bot.repo.trigger_exists(interaction.guild_id, pattern):
-                continue
-            self.bot.repo.add_trigger(interaction.guild_id, pattern, response, reactions)
-            created += 1
-
-        if not created:
-            await interaction.response.send_message(
-                "ℹ️ De PK-triggers staan er al. Bekijk ze met `/trigger list`.", ephemeral=True
-            )
-            return
-        await interaction.response.send_message(f"✅ {created} trigger(s) aangemaakt.", ephemeral=True)
 
     @trigger.command(name="add", description="Laat de bot op een woord reageren met een tekst, emoji of allebei")
     @app_commands.describe(
@@ -108,6 +97,13 @@ class TriggersCog(commands.Cog):
             )
             return
 
+        if self.bot.repo.trigger_exists(interaction.guild_id, woorden):
+            await interaction.response.send_message(
+                f"🚫 Er bestaat al een trigger op `{woorden}`. Bekijk ze met `/trigger list`.",
+                ephemeral=True,
+            )
+            return
+
         trigger_id = self.bot.repo.add_trigger(interaction.guild_id, woorden, antwoord, reacties)
         await interaction.response.send_message(
             f"✅ Trigger **#{trigger_id}** aangemaakt op: `{woorden}`",
@@ -119,7 +115,7 @@ class TriggersCog(commands.Cog):
         rows = self.bot.repo.list_triggers(interaction.guild_id)
         if not rows:
             await interaction.response.send_message(
-                "Er zijn nog geen triggers. Gebruik `/trigger preset` of `/trigger add`.",
+                "Er zijn nog geen triggers. Gebruik `/trigger add` om er een te maken.",
                 ephemeral=True,
             )
             return
@@ -137,8 +133,9 @@ class TriggersCog(commands.Cog):
         embed.description = "\n".join(lines)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @trigger.command(name="remove", description="Verwijder een trigger aan de hand van het ID uit /trigger list")
-    @app_commands.describe(id="Het nummer uit /trigger list, bijv. 3")
+    @trigger.command(name="remove", description="Verwijder een trigger. Kies hem uit de lijst")
+    @app_commands.autocomplete(id=_trigger_choices)
+    @app_commands.describe(id="Kies de trigger die je wilt verwijderen")
     async def remove_cmd(self, interaction: discord.Interaction, id: int) -> None:
         if self.bot.repo.remove_trigger(interaction.guild_id, id):
             await interaction.response.send_message(f"🗑️ Trigger **#{id}** verwijderd.", ephemeral=True)
