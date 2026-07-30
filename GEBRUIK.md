@@ -11,7 +11,7 @@ automatisch herkend.
 | Commando | Wat het doet |
 |---|---|
 | `/score` | Jouw puntenstand, of die van iemand anders |
-| `/leaderboard` | De ranglijst aller tijden |
+| `/leaderboard` | De ranglijst. Kies week, maand of aller tijden |
 | `/version` | Welke versie er draait |
 
 ## Wat de bot uit zichzelf doet
@@ -44,11 +44,18 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/flagged` | Welke woorden het vaakst fout gerekend worden |
 | `/status` | Wat er draait: versie, woordenboek, opslag |
 | `/reset` | Herinneringen, triggers, whitelist of punten wissen |
+| `/points adjust` | Punten optellen of aftrekken bij iemand |
+| `/points reset` | Iemands puntenstand op nul zetten |
 | `/punish mode` | Straffen uit, waarschuwen, of echt dempen |
 | `/punish threshold` | Na hoeveel fouten per dag de eerste mute volgt |
 | `/punish ladder` | Hoe lang elke mute duurt, in minuten |
 | `/punish message` | Zelf schrijven wat de bot zegt bij een mute |
 | `/punish status` | Alle instellingen en de hele mute-ladder |
+
+Een trigger kan ook straffen: vul `minutes` in bij `/trigger add` en wie dat
+woord zegt krijgt een timeout. In het antwoord mag je `{user}`, `{count}` (hoe
+vaak diegene deze trigger al raakte) en `{minutes}` gebruiken. Straffen volgen
+altijd `/punish mode` — staat die op waarschuwen, dan wordt er niemand gedempt.
 
 Bij `/reminder add` en `/trigger add` kun je meerdere teksten scheiden met een
 `|`. De bot kiest er elke keer willekeurig één, zodat een dagelijks bericht niet

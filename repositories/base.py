@@ -16,6 +16,7 @@ class Trigger:
     pattern: str
     response: str | None  # None = react only, don't reply
     reactions: str | None  # comma-separated emoji, None = reply only
+    punish_minutes: int | None  # timeout length, None = no punishment
 
 
 class ScoreRepository(ABC):
@@ -120,6 +121,18 @@ class ScoreRepository(ABC):
 
     @abstractmethod
     def get_config(self, guild_id: int, key: str) -> str | None:
+        ...
+
+    @abstractmethod
+    def log_trigger_hit(self, guild_id: int, trigger_id: int, user_id: int) -> None:
+        ...
+
+    @abstractmethod
+    def count_trigger_hits(self, guild_id: int, trigger_id: int, user_id: int) -> int:
+        ...
+
+    @abstractmethod
+    def adjust_points(self, guild_id: int, user_id: int, delta: int) -> int:
         ...
 
     @abstractmethod

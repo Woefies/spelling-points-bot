@@ -74,6 +74,27 @@ class SqliteScoreRepository(ScoreRepository):
                 )
                 """
             )
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS trigger_hits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    trigger_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    ts TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_hits_lookup ON trigger_hits (guild_id, trigger_id, user_id)"
+            )
+            # CREATE TABLE IF NOT EXISTS does nothing to a table that already
+            # exists, so a column added later needs an explicit migration —
+            # every deployment out there predates punish_minutes.
+            columns = {r[1] for r in self._conn.execute("PRAGMA table_info(triggers)")}
+            if "punish_minutes" not in columns:
+                self._conn.execute("ALTER TABLE triggers ADD COLUMN punish_minutes INTEGER")
+
             # The daily leaderboard filters issues_log by guild and date on every
             # run; without this it is a full table scan of an append-only log.
             self._conn.execute(
@@ -224,6 +245,46 @@ class SqliteScoreRepository(ScoreRepository):
             ).fetchone()
         return row[0] if row else 0
 
+    def log_trigger_hit(self, guild_id: int, trigger_id: int, user_id: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO trigger_hits (guild_id, trigger_id, user_id) VALUES (?, ?, ?)",
+                (guild_id, trigger_id, user_id),
+            )
+            self._conn.commit()
+
+    def count_trigger_hits(self, guild_id: int, trigger_id: int, user_id: int) -> int:
+        """How often this person has set off this one trigger. Feeds {count}."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM trigger_hits "
+                "WHERE guild_id = ? AND trigger_id = ? AND user_id = ?",
+                (guild_id, trigger_id, user_id),
+            ).fetchone()
+        return row[0] if row else 0
+
+    def adjust_points(self, guild_id: int, user_id: int, delta: int) -> int:
+        """Add or subtract points, never below zero. Returns the new total."""
+        with self._lock:
+            self._conn.execute(
+                # The delta is bound twice on purpose. excluded.mistakes is the
+                # value the INSERT *would* have written — already clamped to 0 for
+                # a negative delta — so adding it to the existing score is a no-op.
+                # The UPDATE has to see the raw delta.
+                """
+                INSERT INTO scores (guild_id, user_id, mistakes) VALUES (?, ?, MAX(0, ?))
+                ON CONFLICT(guild_id, user_id)
+                DO UPDATE SET mistakes = MAX(0, mistakes + ?)
+                """,
+                (guild_id, user_id, delta, delta),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT mistakes FROM scores WHERE guild_id = ? AND user_id = ?",
+                (guild_id, user_id),
+            ).fetchone()
+        return row[0] if row else 0
+
     def set_config(self, guild_id: int, key: str, value: str | None) -> None:
         with self._lock:
             if value is None:
@@ -253,6 +314,7 @@ class SqliteScoreRepository(ScoreRepository):
     _CLEARABLE = {
         "reminders": "reminders",
         "triggers": "triggers",
+        "trigger_hits": "trigger_hits",
         "whitelist": "whitelist",
         "scores": "scores",
         "guild_config": "guild_config",
@@ -281,12 +343,18 @@ class SqliteScoreRepository(ScoreRepository):
         return [(row[0], row[1]) for row in rows]
 
     def add_trigger(
-        self, guild_id: int, pattern: str, response: str | None, reactions: str | None
+        self,
+        guild_id: int,
+        pattern: str,
+        response: str | None,
+        reactions: str | None,
+        punish_minutes: int | None = None,
     ) -> int:
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO triggers (guild_id, pattern, response, reactions) VALUES (?, ?, ?, ?)",
-                (guild_id, pattern, response, reactions),
+                "INSERT INTO triggers (guild_id, pattern, response, reactions, punish_minutes) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (guild_id, pattern, response, reactions, punish_minutes),
             )
             self._conn.commit()
         return cur.lastrowid
@@ -294,7 +362,7 @@ class SqliteScoreRepository(ScoreRepository):
     def list_triggers(self, guild_id: int) -> list[Trigger]:
         with self._lock:
             cur = self._conn.execute(
-                "SELECT id, guild_id, pattern, response, reactions FROM triggers "
+                "SELECT id, guild_id, pattern, response, reactions, punish_minutes FROM triggers "
                 "WHERE guild_id = ? ORDER BY id",
                 (guild_id,),
             )
@@ -304,14 +372,14 @@ class SqliteScoreRepository(ScoreRepository):
     def get_trigger(self, guild_id: int, trigger_id: int) -> Trigger | None:
         with self._lock:
             cur = self._conn.execute(
-                "SELECT id, guild_id, pattern, response, reactions FROM triggers "
+                "SELECT id, guild_id, pattern, response, reactions, punish_minutes FROM triggers "
                 "WHERE guild_id = ? AND id = ?",
                 (guild_id, trigger_id),
             )
             row = cur.fetchone()
         return Trigger(*row) if row else None
 
-    _TRIGGER_COLUMNS = ("pattern", "response", "reactions")
+    _TRIGGER_COLUMNS = ("pattern", "response", "reactions", "punish_minutes")
 
     def update_trigger(self, guild_id: int, trigger_id: int, changes: dict) -> bool:
         columns = [c for c in self._TRIGGER_COLUMNS if c in changes]

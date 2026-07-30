@@ -106,7 +106,11 @@ Times a member out once their mistakes *for the local day* cross a multiple of a
 
 `services/punishment.py` holds the arithmetic and imports no discord.py, so the escalation is testable on its own. `crossed()` compares tiers rather than testing for an exact multiple: one message can carry several mistakes and jump 18 → 21 straight past a boundary.
 
-The spelling cog stays unaware of any of this — it fires `bot.dispatch("mistakes_recorded", message, points)` and the punishment cog listens. Timeouts need **Moderate Members** and the bot's role above the target's; Discord refuses to time out admins and the owner at all, which is reported in-channel rather than swallowed.
+The spelling cog stays unaware of any of this — it fires `bot.dispatch("mistakes_recorded", message, points)` and the punishment cog listens.
+
+A trigger carrying `punish_minutes` dispatches `trigger_punishment` to the same cog rather than calling `timeout()` itself. That keeps `/punish mode` the single switch governing every timeout in the bot: a trigger cannot quietly bypass warn-first mode. Trigger punishments fire on a single match, unlike the spelling ladder which needs a threshold crossing, so warn mode matters more here, not less.
+
+`trigger_hits` records who set off which trigger, feeding `{count}` in trigger responses. It is a separate table rather than a `kind` in `issues_log` on purpose — the daily summary, `/flagged` and the punishment counter all read that log, and trigger hits are not spelling mistakes. Timeouts need **Moderate Members** and the bot's role above the target's; Discord refuses to time out admins and the owner at all, which is reported in-channel rather than swallowed.
 
 ## Rate limiting
 
@@ -130,7 +134,9 @@ The backup cog pins a fixed UTC+1 offset instead of `ZoneInfo`, so it does not i
 
 ## Data model (SQLite, `data/points.db`)
 
-`scores` (guild_id, user_id, mistakes — upserted), `whitelist` (guild_id, word — per-guild ignored words), `issues_log` (append-only audit of every flagged word with lang/kind/timestamp, indexed on `(guild_id, ts)` for the daily summary), `triggers` (keyword → response/reactions), `guild_config` (per-guild key/value, currently the daily-summary channel and time), `reminders` (schedule rows, see above). Tables auto-created on repo init by whichever repo owns them.
+`scores` (guild_id, user_id, mistakes — upserted), `whitelist` (guild_id, word — per-guild ignored words), `issues_log` (append-only audit of every flagged word with lang/kind/timestamp, indexed on `(guild_id, ts)` for the daily summary), `triggers` (keyword → response/reactions/punish_minutes), `trigger_hits` (who set off which trigger, feeds `{count}`), `guild_config` (per-guild key/value, currently the daily-summary channel and time), `reminders` (schedule rows, see above). Tables auto-created on repo init by whichever repo owns them. **`CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists**, so a column added later needs an explicit `PRAGMA table_info` check plus `ALTER TABLE` — see `punish_minutes` on `triggers`. Every existing deployment predates any column you add.
+
+`adjust_points()` binds its delta twice, and the duplication is load-bearing: `excluded.mistakes` is the value the INSERT *would* have written, already clamped to zero for a negative delta, so `mistakes + excluded.mistakes` silently no-ops on every subtraction. The UPDATE branch has to see the raw delta.
 
 Triggers and config live on `SqliteScoreRepository` rather than in a repo of their own, deliberately: a separate repo would mean a third SQLite connection to the same file, which is the problem flagged above. The class name is now narrower than what it stores.
 
