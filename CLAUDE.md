@@ -130,7 +130,7 @@ Triggers and config live on `SqliteScoreRepository` rather than in a repo of the
 
 `issues_log` grows unbounded and has no index beyond the implicit rowid; there is no pruning job.
 
-`scripts/report_flagged.py` reads `issues_log` offline to surface the most-frequently flagged words as default-whitelist candidates (stdlib only, no bot import). Its `DEFAULT_WHITELIST` constant is a hand-maintained copy of `Settings.whitelist` and does **not** include `CHAT_SLANG`, so its "already default" column under-reports — keep it in sync manually or it drifts.
+`scripts/report_flagged.py` reads `issues_log` offline to surface the most-frequently flagged words as default-whitelist candidates (stdlib only, no bot import). It groups by `kind` and can filter on it (`--kind spelling|repeat|grammar_nl`) — without that, "this word is whitelisted but still gets flagged" is unanswerable, because the whitelist only ever applied to the spelling checker. Note the table is a historical log: a word whitelisted today still appears for every time it was flagged before that. Its `DEFAULT_WHITELIST` constant is a hand-maintained copy of `Settings.whitelist` and does **not** include `CHAT_SLANG`, so its "already default" column under-reports — keep it in sync manually or it drifts.
 
 ## Conventions
 
