@@ -23,14 +23,15 @@ collega. Python 3.12, discord.py, SQLite.
 
 | | Versie |
 |---|---|
-| Lokale branch `task/trigger-edit` | `0.2.19` |
+| Lokale branch `task/trigger-edit` | `0.2.20` |
 | `master` | `0.2.17` |
 | Draaiende bot op de NAS | **veel ouder** — zie hieronder |
 
-**Twee commits staan nog zonder pull request** op `task/trigger-edit`:
-`9aa36d4` (checker-kolom in het foutenrapport) en `791b50a` (`/flagged`,
-`/status`, `/backup download`, `/whitelist export`). Die moeten nog een PR
-krijgen en gemerged worden.
+**Drie commits wachten in PR #18** op `task/trigger-edit`: `9aa36d4`
+(checker-kolom in het foutenrapport), `791b50a` (`/flagged`, `/status`,
+`/backup download`, `/whitelist export`) en `ba27c6b` (`tzdata` vastgezet, WAL
+op beide SQLite-verbindingen). Die moet eerst gemerged worden — zie de
+volgorde-waarschuwing in §6.
 
 PR's #13, #15, #16 en #17 zijn allemaal gemerged. #14 was van de collega (alleen
 een `flagged.csv` toegevoegd, geen code).
