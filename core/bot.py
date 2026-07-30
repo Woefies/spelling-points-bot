@@ -59,6 +59,7 @@ class SpellBot(commands.Bot):
         super().__init__(command_prefix=settings.prefix, intents=intents, tree_cls=RateLimitedTree)
 
         self.settings = settings
+        self.started_at = discord.utils.utcnow()
 
         from repositories.sqlite_repo import SqliteScoreRepository
 

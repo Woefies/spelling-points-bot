@@ -39,6 +39,10 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/summary enable\|uit\|list` | Het dagelijkse overzicht regelen |
 | `/backup now` | Nu een back-up van de configuratie maken |
 | `/backup list` | Bestaande back-ups tonen |
+| `/backup download` | Nieuwste back-up als bestand, alleen naar jou |
+| `/whitelist export` | Whitelist als tekstbestand |
+| `/flagged` | Welke woorden het vaakst fout gerekend worden |
+| `/status` | Wat er draait: versie, woordenboek, opslag |
 | `/reset` | Herinneringen, triggers, whitelist of punten wissen |
 | `/punish mode` | Straffen uit, waarschuwen, of echt dempen |
 | `/punish threshold` | Na hoeveel fouten per dag de eerste mute volgt |

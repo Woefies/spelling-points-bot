@@ -76,6 +76,29 @@ class BackupCog(commands.Cog):
             f"✅ Back-up gemaakt: `{path.name}`\n{summary}", ephemeral=True
         )
 
+    @backup.command(name="download", description="Stuur de nieuwste back-up als bestand, alleen naar jou")
+    async def download_cmd(self, interaction: discord.Interaction) -> None:
+        dest = backup_dir_for(self.bot.settings.db_path)
+        snapshots = sorted(dest.glob("config-backup-*.json"), reverse=True)
+        if not snapshots:
+            await interaction.response.send_message(
+                "Er is nog geen back-up. Maak er een met `/backup now`.", ephemeral=True
+            )
+            return
+
+        newest = snapshots[0]
+        try:
+            with newest.open("rb") as fh:
+                await interaction.response.send_message(
+                    f"🗄️ `{newest.name}` — {newest.stat().st_size / 1024:.1f} kB",
+                    file=discord.File(fh, filename=newest.name),
+                    ephemeral=True,
+                )
+        except OSError as exc:
+            await interaction.response.send_message(
+                f"🚫 Kon de back-up niet lezen: `{exc}`", ephemeral=True
+            )
+
     @backup.command(name="list", description="Toon welke back-ups er zijn, hoe recent en hoe groot")
     async def list_cmd(self, interaction: discord.Interaction) -> None:
         dest = backup_dir_for(self.bot.settings.db_path)

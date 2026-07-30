@@ -14,11 +14,15 @@ class SpellingChecker(Checker):
         # before settings exist, and reading a Hunspell dictionary costs a second
         # or two that should not sit in the import path.
         self._lookups = None
+        # Exposed so /status can report which dictionary is actually in use —
+        # "is Hunspell live?" is otherwise only answerable from the startup log.
+        self.backends: dict = {}
 
     def _ensure_loaded(self, ctx) -> None:
         if self._lookups is not None:
             return
-        self._lookups, backends = load(ctx.get("hunspell_dir", DEFAULT_HUNSPELL_DIR))
+        self._lookups, self.backends = load(ctx.get("hunspell_dir", DEFAULT_HUNSPELL_DIR))
+        backends = self.backends
         log.info(
             "Spelling dictionaries: %s",
             ", ".join(f"{lang}={name}" for lang, name in sorted(backends.items())) or "none",

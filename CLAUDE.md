@@ -112,6 +112,12 @@ The spelling cog stays unaware of any of this — it fires `bot.dispatch("mistak
 
 `RateLimitedTree` in `core/bot.py` puts one shared cooldown (5 uses / 15 s / user) in front of every slash command via `interaction_check`, rather than a decorator per command that a new cog could forget. It lets non-application-command interactions through untouched — autocomplete fires on every keystroke and must never be throttled.
 
+## Self-service diagnostics
+
+`cogs/insights.py` (`/flagged`, `/status`), plus `/backup download` and `/whitelist export`, exist so nothing routine needs a shell on the host. The person with SSH access is one holiday away from being a single point of failure, and the flagged-words report in particular was needed twice in the first week.
+
+`/status` reports the live dictionary backend by reading `REGISTRY["spelling"].backends`, which is why `SpellingChecker` keeps that attribute — "did the Hunspell change actually land?" would otherwise only be answerable from the startup log. It is empty until the first message is checked, since dictionaries load lazily.
+
 ## Backups
 
 `data/` is a mounted volume, so configuration already survives a rebuild — the gap backups close is the database file itself being lost or corrupted. `cogs/backup.py` writes a JSON snapshot of `reminders`, `triggers`, `whitelist`, `guild_config` and `scores` at 04:00 daily into `data/backups/` (gitignored), keeping the newest 14. `issues_log` is excluded on purpose: append-only audit data, unbounded, pointless to restore.

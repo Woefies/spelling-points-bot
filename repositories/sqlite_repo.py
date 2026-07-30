@@ -191,6 +191,32 @@ class SqliteScoreRepository(ScoreRepository):
             rows = cur.fetchall()
         return [(r[0], r[1], r[2]) for r in rows]
 
+    def top_flagged(
+        self, guild_id: int, start_utc: str, end_utc: str, kind: str | None, limit: int
+    ) -> list[tuple[str, str, int, int]]:
+        query = """
+            SELECT LOWER(word), kind, COUNT(*) AS hits, COUNT(DISTINCT user_id)
+            FROM issues_log
+            WHERE guild_id = ? AND ts >= ? AND ts < ?
+        """
+        params: list = [guild_id, start_utc, end_utc]
+        if kind:
+            query += " AND kind = ?"
+            params.append(kind)
+        query += " GROUP BY LOWER(word), kind ORDER BY hits DESC, 1 ASC LIMIT ?"
+        params.append(limit)
+
+        with self._lock:
+            rows = self._conn.execute(query, params).fetchall()
+        return [(r[0], r[1], r[2], r[3]) for r in rows]
+
+    def total_issues(self, guild_id: int) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM issues_log WHERE guild_id = ?", (guild_id,)
+            ).fetchone()
+        return row[0] if row else 0
+
     def set_config(self, guild_id: int, key: str, value: str | None) -> None:
         with self._lock:
             if value is None:

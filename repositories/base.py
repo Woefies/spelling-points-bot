@@ -103,6 +103,17 @@ class ScoreRepository(ABC):
         ...
 
     @abstractmethod
+    def top_flagged(
+        self, guild_id: int, start_utc: str, end_utc: str, kind: str | None, limit: int
+    ) -> list[tuple[str, str, int, int]]:
+        """(word, kind, hits, distinct users), most-flagged first."""
+        ...
+
+    @abstractmethod
+    def total_issues(self, guild_id: int) -> int:
+        ...
+
+    @abstractmethod
     def set_config(self, guild_id: int, key: str, value: str | None) -> None:
         """Store a per-guild setting; None deletes it."""
         ...

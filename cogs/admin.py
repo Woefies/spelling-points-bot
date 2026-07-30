@@ -1,5 +1,7 @@
 """Admin cog: manage per-guild spelling-checker whitelist."""
 
+import io
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -111,6 +113,22 @@ class AdminCog(commands.Cog):
         await ctx.reply(
             f"📗 **{total}** eigen woord(en) op de whitelist, plus **{builtin}** ingebouwd:\n"
             f"{text}{tail}",
+            ephemeral=True,
+        )
+
+    @whitelist.command(name="export", description="Stuur de whitelist als tekstbestand, alleen naar jou")
+    async def whitelist_export(self, ctx: commands.Context) -> None:
+        words = sorted(self.bot.repo.get_whitelist(ctx.guild.id))
+        if not words:
+            await ctx.reply(
+                "Deze server heeft nog geen eigen woorden op de whitelist.", ephemeral=True
+            )
+            return
+
+        buffer = io.BytesIO("\n".join(words).encode("utf-8"))
+        await ctx.reply(
+            f"📗 {len(words)} woord(en).",
+            file=discord.File(buffer, filename=f"whitelist-{ctx.guild.id}.txt"),
             ephemeral=True,
         )
 
