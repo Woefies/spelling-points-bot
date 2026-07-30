@@ -41,7 +41,7 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/backup list` | Bestaande back-ups tonen |
 | `/backup restore` | Een gedownloade back-up terugzetten |
 | `/update enable\|disable` | Melden zodra er een nieuwe versie klaarstaat |
-| `/update now` | Een update aanvragen, de taakplanner voert hem uit |
+| `/update now` | Een update aanvragen. De bot meldt daarna zelf of het lukte |
 | `/settings show` | Hoe streng de spellingcheck nu staat |
 | `/settings points\|reply\|minwords\|capitals` | Die strengheid bijstellen |
 | `/backup download` | Nieuwste back-up als bestand, alleen naar jou |

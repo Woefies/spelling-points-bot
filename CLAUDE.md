@@ -170,6 +170,8 @@ It detects whether Docker needs `sudo` rather than hardcoding it, so it works bo
 
 `/update now` drops a request file in the mounted data volume, which the script picks up on its next run. **The bot deliberately cannot rebuild itself** — that would mean mounting the Docker socket into a container that reacts to patterns taken from user messages, i.e. host-level access behind a trigger anyone can type. The file is cleared *before* the rebuild rather than after, so a request that produces a failing build does not retry on every scheduled run forever; `--check` leaves it alone, since check mode must change nothing.
 
+**The bot cannot watch its own replacement**, so the outcome of an update reaches Discord two ways. The script writes a result file that the *next* process reads once and deletes, covering success and both failure modes (build failed, container did not stay up). For a rebuild someone did by hand — no script, no result file — the running version simply differing from the last one recorded in `guild_config` produces the same announcement. A plain restart says nothing, and so does a first-ever start with nothing recorded.
+
 `cogs/version.py` separately announces a new version once per version into a configured channel (`/update enable`). Announcing is not deploying: the two are deliberately separate, so a team that does not want unattended deploys still learns that something is waiting.
 
 ## Deployment

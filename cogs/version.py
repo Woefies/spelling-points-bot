@@ -21,6 +21,8 @@ RAW_URL = "https://raw.githubusercontent.com/{repo}/{branch}/VERSION"
 CONFIG_CHANNEL = "update_channel"
 CONFIG_ANNOUNCED = "update_announced"  # last version we already mentioned
 REQUEST_FILE = ".update-requested"  # picked up by scripts/auto_update.sh
+RESULT_FILE = ".update-result"  # written by that script, read once on the next start
+CONFIG_SEEN = "update_last_seen"  # detects a rebuild nobody announced
 # Fixed offset rather than ZoneInfo, matching cogs/backup.py: an hour of drift in
 # summer is irrelevant for a daily check.
 CHECK_AT = datetime.time(hour=9, minute=0, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
@@ -62,6 +64,51 @@ class VersionCog(commands.Cog):
     @check_updates.before_loop
     async def before_check(self) -> None:
         await self.bot.wait_until_ready()
+        await self._report_restart()
+
+    async def _report_restart(self) -> None:
+        """Say what happened, once, on the first start after a rebuild.
+
+        The bot cannot watch its own replacement, so the outcome arrives two ways:
+        a result file from the update script, or — for a rebuild someone did by
+        hand — the running version simply differing from what was last seen.
+        """
+        path = Path(self.bot.settings.db_path).parent / RESULT_FILE
+        outcome = None
+        if path.exists():
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+                outcome = (lines + ["", "", "", ""])[:4]
+            except OSError:
+                log.warning("Could not read %s", path)
+            finally:
+                path.unlink(missing_ok=True)
+
+        running = self.bot.settings.version
+        for guild_id, channel_id in self.bot.repo.all_config(CONFIG_CHANNEL):
+            seen = self.bot.repo.get_config(guild_id, CONFIG_SEEN)
+            self.bot.repo.set_config(guild_id, CONFIG_SEEN, running)
+
+            if outcome and outcome[0] == "failed":
+                text = (
+                    f"❌ Update naar **v{outcome[2]}** mislukt — {outcome[3] or 'onbekende reden'}\n"
+                    f"Er is teruggerold; ik draai nog op **v{running}**."
+                )
+            elif outcome and outcome[0] == "ok":
+                text = f"✅ Bijgewerkt van **v{outcome[1]}** naar **v{running}**."
+            elif seen and seen != running:
+                # No result file: someone rebuilt by hand rather than via the script.
+                text = f"✅ Ik draai nu op **v{running}** (was **v{seen}**)."
+            else:
+                continue
+
+            channel = self.bot.get_channel(int(channel_id))
+            if channel is None:
+                continue
+            try:
+                await channel.send(text)
+            except discord.HTTPException:
+                log.warning("Could not report restart in %s", channel_id)
 
     async def _fetch_latest(self) -> str | None:
         s = self.bot.settings
@@ -157,8 +204,8 @@ class VersionCog(commands.Cog):
         )
         await interaction.response.send_message(
             f"📥 Verzoek genoteerd. {note}\n"
-            "De bot herstart zichzelf zodra de taakplanner langskomt; controleer daarna "
-            "met `/version`.\n"
+            "De bot herstart zichzelf zodra de taakplanner langskomt en meldt daarna "
+            "in het ingestelde kanaal of het gelukt is.\n"
             "_Werkt alleen als `scripts/auto_update.sh` als taak is ingesteld._",
             ephemeral=True,
         )

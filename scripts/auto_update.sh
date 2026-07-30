@@ -26,6 +26,9 @@ CONTAINER="${SPELLBOT_CONTAINER:-discord_bot-spellbot-1}"
 COMPOSE="${DOCKER_COMPOSE:-docker compose}"
 SETTLE_SECONDS="${SETTLE_SECONDS:-25}"
 REQUEST_FILE="${REQUEST_FILE:-data/.update-requested}"
+# The bot reads this on its next start and reports the outcome in Discord — it
+# cannot see whether the rebuild that replaced it succeeded any other way.
+RESULT_FILE="${RESULT_FILE:-data/.update-result}"
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
@@ -102,6 +105,7 @@ fi
 log "rebuilding"
 if ! $COMPOSE up -d --build; then
     log "ERROR: build failed"
+    printf 'failed\n%s\n%s\nDe build ging mis.\n' "${current:-onbekend}" "$latest" > "$RESULT_FILE"
     git reset --hard "$previous_commit" >/dev/null 2>&1
     [ -n "$rollback_tag" ] && $COMPOSE up -d >/dev/null 2>&1
     log "rolled back to $previous_commit"
@@ -115,10 +119,12 @@ sleep "$SETTLE_SECONDS"
 
 if container_up && [ "$(running_version)" = "$latest" ]; then
     log "OK: now running $latest"
+    printf 'ok\n%s\n%s\n' "${current:-onbekend}" "$latest" > "$RESULT_FILE"
     exit 0
 fi
 
 log "ERROR: container is not healthy after the rebuild"
+printf 'failed\n%s\n%s\nDe nieuwe versie bleef niet draaien.\n' "${current:-onbekend}" "$latest" > "$RESULT_FILE"
 $DOCKER logs --tail 30 "$CONTAINER" 2>&1 | sed 's/^/    /'
 git reset --hard "$previous_commit" >/dev/null 2>&1
 log "rolling back to $previous_commit"
