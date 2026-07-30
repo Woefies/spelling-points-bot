@@ -36,11 +36,11 @@ class ResetCog(commands.Cog):
         name="reset", description="Wis een onderdeel van de instellingen van deze server"
     )
     @app_commands.describe(
-        onderdeel="Wat je wilt wissen. Er wordt eerst automatisch een back-up gemaakt",
-        bevestig="Zet op True. Dit verwijdert gegevens en kan niet ongedaan gemaakt worden",
+        target="Wat je wilt wissen. Er wordt eerst automatisch een back-up gemaakt",
+        confirm="Zet op True. Dit verwijdert gegevens en kan niet ongedaan gemaakt worden",
     )
     @app_commands.choices(
-        onderdeel=[
+        target=[
             app_commands.Choice(name="herinneringen", value="reminders"),
             app_commands.Choice(name="triggers", value="triggers"),
             app_commands.Choice(name="whitelist", value="whitelist"),
@@ -54,14 +54,14 @@ class ResetCog(commands.Cog):
     async def reset(
         self,
         interaction: discord.Interaction,
-        onderdeel: app_commands.Choice[str],
-        bevestig: bool,
+        target: app_commands.Choice[str],
+        confirm: bool,
     ) -> None:
-        tables, human = RESETTABLE[onderdeel.value]
+        tables, human = RESETTABLE[target.value]
 
-        if not bevestig:
+        if not confirm:
             await interaction.response.send_message(
-                f"🚫 Niets gewist. Zet `bevestig` op **True** om {human} echt te verwijderen.",
+                f"🚫 Niets gewist. Zet `confirm` op **True** om {human} echt te verwijderen.",
                 ephemeral=True,
             )
             return
@@ -84,18 +84,18 @@ class ResetCog(commands.Cog):
 
         removed = {t: self.bot.repo.clear(interaction.guild_id, t) for t in tables}
         total = sum(removed.values())
-        log.info("Reset '%s' in guild %s removed %d row(s)", onderdeel.value, interaction.guild_id, total)
+        log.info("Reset '%s' in guild %s removed %d row(s)", target.value, interaction.guild_id, total)
 
         if total == 0:
             await interaction.followup.send(
-                f"ℹ️ Er was niets om te wissen bij **{onderdeel.name}**.{backup_note}",
+                f"ℹ️ Er was niets om te wissen bij **{target.name}**.{backup_note}",
                 ephemeral=True,
             )
             return
 
         detail = "\n".join(f"• {name}: {n}" for name, n in removed.items() if n)
         await interaction.followup.send(
-            f"🧹 **{onderdeel.name}** gewist — {total} regel(s) verwijderd:\n{detail}"
+            f"🧹 **{target.name}** gewist — {total} regel(s) verwijderd:\n{detail}"
             f"{backup_note}\n\n"
             "_Toch te snel geweest? De back-up terugzetten kan met `scripts/import_config.py`._",
             ephemeral=True,

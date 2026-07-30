@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Discord bot that spell-checks every message (Dutch + English) and tallies "mistake points" per user, per guild. Offline spelling (pyspellchecker, no external API), language auto-detected (langdetect), points in SQLite. Also ships a Dutch grammar checker, a repeated-word checker, scheduled channel reminders, and a version drift-check against GitHub.
+Discord bot that spell-checks every message (Dutch + English) and tallies "mistake points" per user, per guild. Offline spelling (Hunspell via spylls, pyspellchecker as fallback; no external API), language auto-detected (langdetect), points in SQLite. Also ships a Dutch grammar checker, a repeated-word checker, scheduled channel reminders, and a version drift-check against GitHub.
 
 ## Run / dev
 
@@ -44,14 +44,17 @@ Three swap points, each backed by an interface/registry. Adding a feature = drop
 - It's a `@commands.Cog.listener()`, so it's additive — prefix commands still dispatch normally, no `process_commands` call needed.
 - `services/cleaner.py` — `clean()` (pre-check normalization), `tokenize()` (unicode-aware, letters only, keeps case), and `is_noise_word()` (laughter/elongation like `hahaha`, `lmfaooo`). Checkers tokenize the already-cleaned text themselves.
 - `services/detector.py` — langdetect wrapper, `DetectorFactory.seed=0` for determinism, only returns supported langs (`en`/`nl`).
-- `services/lexicon.py` — `CHAT_SLANG`, a frozenset of nl+en internet abbreviations merged into the whitelist on every check.
+- `services/lexicon.py` — `SKIP_WORDS`, the union of `CHAT_SLANG`, `ABBREVIATIONS` and `TECH_TERMS`, merged into the whitelist on every check. Written abbreviations (`enz`, `bijv`, `ipv`) are **not** in any Hunspell dictionary — they are punctuation conventions rather than words — so without this list they read as mistakes. Company-specific words belong in the per-guild whitelist, not here.
+- `services/dictionaries.py` — picks a backend per language: Hunspell via `spylls` when `<lang>.dic` exists under `HUNSPELL_DIR`, else pyspellchecker. Loaded lazily on the first check, because `@register` instantiates checkers at import time when no settings exist yet, and reading a dictionary costs a second or two. Lookups are `lru_cache`d; spylls is a readable reference implementation, not a fast one.
 
 ### Checker behaviour worth knowing before changing it
 
 - `SpellingChecker` skips: whitelisted words, len≤1, noise words, and (when `skip_capitalized`) capitalized non-first tokens (proper-noun heuristic). Side effect: an ALL-CAPS message is effectively unchecked past the first token.
+- Hunspell is what makes Dutch checkable: it applies affix and compounding rules, so `zonnebrandcrème` and `voetbalwedstrijdverslag` pass without being in any list. A flat word list can never hold them — Dutch glues words together without limit — which is why pyspellchecker produced so many false positives. Debian's `hunspell-nl` (built from OpenTaal) is installed in the Dockerfile.
 - A word is only a mistake if unknown in **both** the nl and en dictionaries (deliberate, so code-switched messages don't false-positive). This is why many real misspellings slip through — a Dutch typo that happens to be a valid English word is never flagged.
 - Scoring is inconsistent between checkers by construction: `SpellingChecker` dedups via a `set` (same typo 3× = 1 point), while `repeats` and `dutch_dt` emit one `Issue` per match (3 points).
-- Known false positives, do not "fix" the symptom without checking these: `dutch_dt`'s `als→dan` rule fires on the perfectly correct "beter/leuker/sneller **als** je …" (conditional *if*), and `repeats` flags the ordinary Dutch "ik denk **dat dat** goed is" (only `had` is allowlisted).
+- `repeats` honours `ctx["whitelist"]` on top of its own `_ALLOWLIST` (`had`, `dat`, `die` — all of which double legitimately in Dutch). A word an admin has whitelisted must be fine for *every* checker, or whitelisting looks broken to the person who did it.
+- `dutch_dt` is the exception and cannot honour the whitelist: it reports a rule name (`als→dan`), not a word, so there is nothing to match against. Its `als→dan` rule still fires on the perfectly correct "beter/leuker/sneller **als** je …" (conditional *if*), and the only fix is dropping the rule.
 - The reply on mistake (`cogs/spelling.py`) is **not** wrapped in try/except, unlike the ❌ reaction right above it — missing send permission or a deleted message raises inside `on_message`.
 
 ## Reminders (`cogs/reminders.py` + `repositories/reminders_repo.py`)
@@ -68,7 +71,9 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 
 ## Command help text
 
-`description=` on a command and each `app_commands.describe` string are what Discord shows while someone is typing, and **Discord caps both at 100 characters** — the API rejects the whole sync if any is longer, which takes down every command, not just the offending one. Write them as a hint with a concrete example (`"Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00"`), and keep them in Dutch: the entire user-facing surface is Dutch, while the code and these notes are English.
+`description=` on a command and each `app_commands.describe` string are what Discord shows while someone is typing, and **Discord caps both at 100 characters** — the API rejects the whole sync if any is longer, which takes down every command, not just the offending one. **Command, subcommand and parameter names are English; every description, choice label and reply is Dutch.** That split is the convention here — `add`/`list`/`remove`/`edit` are what Discord users expect to type, while everything read on screen is in the team's language. Do not add a Dutch command name.
+
+Write descriptions as a hint with a concrete example (`"Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00"`), and keep them in Dutch: the entire user-facing surface is Dutch, while the code and these notes are English.
 
 - **`TZ = ZoneInfo("Europe/Amsterdam")` runs at module import.** `tzdata` is not in `requirements.txt`, so this depends entirely on the OS tz database being present in the image. If it isn't, the cog fails to import — since fault isolation landed this only costs you the reminders cog rather than the whole bot, and the startup log names it. Add `tzdata` to requirements if that shows up.
 - Because the cog pins the timezone explicitly, the container's `TZ` env is irrelevant. Don't "fix" reminders by setting `TZ` in `docker-compose.yml`.
@@ -77,9 +82,13 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 
 ## Triggers and the daily summary
 
-`cogs/triggers.py` reacts to keywords with a reply, emoji, or both — a social nudge, not a mistake, so it awards no points. Rows live in the `triggers` table and are editable at runtime via `/trigger add|list|remove`; nothing is hardcoded. `/trigger add` refuses a pattern that already exists. Patterns are matched with `services/variants.compile_phrases`, which wraps `\b…\b` word boundaries around each phrase — that is what keeps the profanity trigger off `kankeren` and `borstkanker`. It cannot keep it off a genuine medical mention, which is a known and accepted limitation. At most one reply fires per message however many triggers match.
+`cogs/triggers.py` reacts to keywords with a reply, emoji, or both — a social nudge, not a mistake, so it awards no points. Rows live in the `triggers` table and are editable at runtime via `/trigger add|edit|list|remove`; nothing is hardcoded. `/trigger add` refuses a pattern that already exists.
 
-`cogs/daily_summary.py` posts the day's leaderboard on weekdays at a configurable time (`/dagoverzicht aan|uit|nu`), reading `issues_log` because `scores` only holds running totals. **Timezone trap:** `issues_log.ts` is SQLite's `CURRENT_TIMESTAMP` (UTC) while the reporting day is Amsterdam local, so it queries a UTC *range* built by `_utc_window_for_local_day`, never `DATE(ts)`. A plain date match silently files everything logged between local midnight and 01:00/02:00 into the previous day.
+`/trigger edit` differs from `/reminder edit` on purpose: it takes a `changes` dict rather than keyword arguments, because a trigger legitimately needs a field *cleared*. A lone `-` empties `response` or `reactions`, which the reminder version has no equivalent of — "not given" and "make empty" have to be distinguishable. It refuses an edit that would leave a trigger with neither a reply nor reactions, since that is a row that does nothing. Patterns are matched with `services/variants.compile_phrases`, which wraps `\b…\b` word boundaries around each phrase — that is what keeps the profanity trigger off `kankeren` and `borstkanker`. It cannot keep it off a genuine medical mention, which is a known and accepted limitation. At most one reply fires per message however many triggers match.
+
+Overviews print display names; only messages aimed at one person (a warning, a mute) mention them. A list of mentions reads as if everyone in it is being addressed, and it stays noisy even though a mention inside an embed does not notify.
+
+`cogs/daily_summary.py` posts the day's leaderboard on weekdays at a configurable time (`/summary enable|uit|list`), reading `issues_log` because `scores` only holds running totals. **Timezone trap:** `issues_log.ts` is SQLite's `CURRENT_TIMESTAMP` (UTC) while the reporting day is Amsterdam local, so it queries a UTC *range* built by `_utc_window_for_local_day`, never `DATE(ts)`. A plain date match silently files everything logged between local midnight and 01:00/02:00 into the previous day.
 
 `services/variants.py` is shared by both: `pick_variant` picks one of several `|`-separated phrasings per firing (so recurring output does not go stale), and `compile_phrases` builds the matching regex. Reminders and triggers both store variants in a single text column.
 
@@ -88,6 +97,20 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 `/reset` wipes one category (`reminders`, `triggers`, `whitelist`, `scores`, `guild_config`, or all of them) for the calling guild. It **always writes a backup snapshot first and aborts if that fails** — the snapshot is the only way back, so taking it afterwards would be pointless. It also requires an explicit `bevestig: True`; a destructive command that fires on a single click is a footgun.
 
 `SqliteScoreRepository.clear()` maps a caller-supplied key through `_CLEARABLE` before it reaches the SQL string, so a table name is never interpolated unchecked, and it returns 0 for a table that does not exist yet rather than raising. It clears `reminders` too, even though `SqliteReminderRepository` owns that table — running one DELETE is not worth a third connection to the same file.
+
+## Punishment (`cogs/punishment.py` + `services/punishment.py`)
+
+Times a member out once their mistakes *for the local day* cross a multiple of a configurable threshold (default 20). Threshold, ladder and both announcement texts are per-guild settings, not constants — tuning this must not need a redeploy by whoever runs the host. The ladder defaults to 1/2/5/10/20/30 minutes and its last rung repeats rather than escalating, so a bad day cannot end in an hour of silence. Custom texts take `{user}`, `{count}` and `{minutes}`; `render()` falls back to the built-in text when a template is malformed, because admins write these by hand and a stray brace must not swallow the announcement.
+
+**Three modes, off by default.** `warn` announces who *would* have been muted without touching anyone, and exists because this is the only feature that can stop a colleague from talking — the bot still has false positives on names and jargon. Run `warn` before `mute`.
+
+`services/punishment.py` holds the arithmetic and imports no discord.py, so the escalation is testable on its own. `crossed()` compares tiers rather than testing for an exact multiple: one message can carry several mistakes and jump 18 → 21 straight past a boundary.
+
+The spelling cog stays unaware of any of this — it fires `bot.dispatch("mistakes_recorded", message, points)` and the punishment cog listens. Timeouts need **Moderate Members** and the bot's role above the target's; Discord refuses to time out admins and the owner at all, which is reported in-channel rather than swallowed.
+
+## Rate limiting
+
+`RateLimitedTree` in `core/bot.py` puts one shared cooldown (5 uses / 15 s / user) in front of every slash command via `interaction_check`, rather than a decorator per command that a new cog could forget. It lets non-application-command interactions through untouched — autocomplete fires on every keystroke and must never be throttled.
 
 ## Backups
 
@@ -112,7 +135,9 @@ Triggers and config live on `SqliteScoreRepository` rather than in a repo of the
 ## Conventions
 
 - Config flows one way: `.env` → `load_settings()` → `Settings` dataclass → `bot.settings`. Read config off `bot.settings`, never `os.getenv` outside `core/config.py` (`scripts/` are standalone and exempt).
-- `Settings.whitelist` is a hardcoded default set merged with the DB whitelist at check time — global-ish defaults live in config, per-guild additions in DB. Genuinely-global slang belongs in `services/lexicon.py` instead.
+- `/whitelist add|remove` take a comma-separated list, not a single word: the flagged-words report produces batches, and one command per word does not scale. `/whitelist remove` autocompletes from the guild's own entries — on a hybrid command that has to go through `@cmd.autocomplete("param")` rather than the `@app_commands.autocomplete` decorator. Its filter reads the text after the last comma, so suggestions keep working while typing a list.
+
+`Settings.whitelist` is a hardcoded default set merged with the DB whitelist at check time — global-ish defaults live in config, per-guild additions in DB. Genuinely-global slang belongs in `services/lexicon.py` instead.
 - Cogs reach shared state via `self.bot.settings` and `self.bot.repo`.
 
 ## Versioning

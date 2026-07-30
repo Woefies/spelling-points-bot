@@ -1,12 +1,53 @@
 import logging
 import pkgutil
+import time
+from collections import defaultdict, deque
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from core.config import Settings
 
 log = logging.getLogger(__name__)
+
+# Per user, across every slash command. Generous enough that normal use never
+# notices, tight enough that nobody can hammer /leaderboard in a loop.
+RATE_LIMIT_USES = 5
+RATE_LIMIT_SECONDS = 15.0
+
+
+class RateLimitedTree(app_commands.CommandTree):
+    """Applies one shared cooldown to every slash command.
+
+    Done here rather than with a decorator per command so a new cog cannot
+    forget it, and so the limit lives in one place.
+    """
+
+    def __init__(self, client: discord.Client) -> None:
+        super().__init__(client)
+        self._uses: dict[int, deque[float]] = defaultdict(deque)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Autocomplete fires on every keystroke and must never be throttled.
+        if interaction.type is not discord.InteractionType.application_command:
+            return True
+
+        now = time.monotonic()
+        recent = self._uses[interaction.user.id]
+        while recent and now - recent[0] > RATE_LIMIT_SECONDS:
+            recent.popleft()
+
+        if len(recent) >= RATE_LIMIT_USES:
+            wait = RATE_LIMIT_SECONDS - (now - recent[0])
+            await interaction.response.send_message(
+                f"🐢 Rustig aan — probeer het over **{wait:.0f} seconden** nog eens.",
+                ephemeral=True,
+            )
+            return False
+
+        recent.append(now)
+        return True
 
 
 class SpellBot(commands.Bot):
@@ -15,7 +56,7 @@ class SpellBot(commands.Bot):
         intents.message_content = True
         intents.guilds = True
         intents.members = True  # populate member cache so leaderboard resolves names
-        super().__init__(command_prefix=settings.prefix, intents=intents)
+        super().__init__(command_prefix=settings.prefix, intents=intents, tree_cls=RateLimitedTree)
 
         self.settings = settings
 

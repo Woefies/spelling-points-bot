@@ -71,11 +71,35 @@ class ScoreRepository(ABC):
         ...
 
     @abstractmethod
+    def get_trigger(self, guild_id: int, trigger_id: int) -> Trigger | None:
+        ...
+
+    @abstractmethod
+    def update_trigger(self, guild_id: int, trigger_id: int, changes: dict) -> bool:
+        """Patch the given columns. A value of None clears that column, so the
+        caller decides what 'not given' versus 'make empty' means — unlike the
+        reminder equivalent, a trigger legitimately needs its reply or its
+        reactions removed."""
+        ...
+
+    @abstractmethod
     def remove_trigger(self, guild_id: int, trigger_id: int) -> bool:
         ...
 
     @abstractmethod
     def trigger_exists(self, guild_id: int, pattern: str) -> bool:
+        ...
+
+    @abstractmethod
+    def count_between(self, guild_id: int, user_id: int, start_utc: str, end_utc: str) -> int:
+        """How many issues this one user collected in a UTC window."""
+        ...
+
+    @abstractmethod
+    def words_between(
+        self, guild_id: int, start_utc: str, end_utc: str
+    ) -> list[tuple[int, str, int]]:
+        """(user_id, word, times) within a UTC window, most-flagged first."""
         ...
 
     @abstractmethod

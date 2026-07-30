@@ -19,6 +19,7 @@ CONFIG_CHANNEL = "daily_summary_channel"
 CONFIG_TIME = "daily_summary_time"
 DEFAULT_TIME = "16:30"
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+WORDS_PER_USER = 8  # keeps the embed inside Discord's 4096-character description
 
 
 def _utc_window_for_local_day(now: datetime) -> tuple[str, str]:
@@ -88,12 +89,27 @@ class DailySummaryCog(commands.Cog):
             embed.description = "Geen enkele fout vandaag. Verdacht. 🎉"
             return embed
 
+        # Which words, not just how many — that is what makes the summary useful
+        # for spotting a false positive worth whitelisting.
+        by_user: dict[int, list[str]] = {}
+        for user_id, word, times in self.bot.repo.words_between(guild_id, start_utc, end_utc):
+            by_user.setdefault(user_id, []).append(f"{word}×{times}" if times > 1 else word)
+
         guild = self.bot.get_guild(guild_id)
         lines = []
         for rank, (user_id, count) in enumerate(rows, start=1):
+            # Plain names, not mentions: an overview is something you scan, and a
+            # list of mentions reads as if everyone is being addressed. Tagging is
+            # for messages aimed at one person, like a warning or a mute.
             member = guild.get_member(user_id) if guild else None
             name = member.display_name if member else f"Gebruiker {user_id}"
             lines.append(f"{MEDALS.get(rank, f'{rank}.')} **{name}** — {count}")
+
+            words = by_user.get(user_id, [])
+            if words:
+                shown = ", ".join(words[:WORDS_PER_USER])
+                rest = len(words) - WORDS_PER_USER
+                lines.append(f"　`{shown}`" + (f" _+{rest}_" if rest > 0 else ""))
 
         embed.description = "\n".join(lines)
         embed.set_footer(text=f"{sum(c for _, c in rows)} fouten vandaag")
@@ -101,49 +117,49 @@ class DailySummaryCog(commands.Cog):
 
     # -------------------------------------------------------------- commands
 
-    dagoverzicht = app_commands.Group(
-        name="dagoverzicht",
+    summary = app_commands.Group(
+        name="summary",
         description="Dagelijkse ranglijst van de spelfouten van die dag, aan het eind van de werkdag",
         default_permissions=discord.Permissions(manage_guild=True),
         guild_only=True,
     )
 
-    @dagoverzicht.command(name="aan", description="Zet het dagoverzicht aan. Standaard elke werkdag om 16:30")
+    @summary.command(name="enable", description="Zet het dagoverzicht aan. Standaard elke werkdag om 16:30")
     @app_commands.describe(
-        kanaal="In welk kanaal het overzicht elke werkdag geplaatst wordt",
-        tijd=f"Tijd in HH:MM (standaard {DEFAULT_TIME}, alleen op werkdagen)",
+        channel="In welk kanaal het overzicht elke werkdag geplaatst wordt",
+        time=f"Tijd in HH:MM (standaard {DEFAULT_TIME}, alleen op werkdagen)",
     )
     async def enable_cmd(
         self,
         interaction: discord.Interaction,
-        kanaal: discord.TextChannel,
-        tijd: str | None = None,
+        channel: discord.TextChannel,
+        time: str | None = None,
     ) -> None:
         when = DEFAULT_TIME
-        if tijd:
+        if time:
             try:
-                when = datetime.strptime(tijd.strip(), "%H:%M").strftime("%H:%M")
+                when = datetime.strptime(time.strip(), "%H:%M").strftime("%H:%M")
             except ValueError:
                 await interaction.response.send_message(
                     "🚫 Ongeldige tijd. Gebruik HH:MM, bijv. `16:30`.", ephemeral=True
                 )
                 return
 
-        self.bot.repo.set_config(interaction.guild_id, CONFIG_CHANNEL, str(kanaal.id))
+        self.bot.repo.set_config(interaction.guild_id, CONFIG_CHANNEL, str(channel.id))
         self.bot.repo.set_config(interaction.guild_id, CONFIG_TIME, when)
         await interaction.response.send_message(
-            f"✅ Dagoverzicht staat aan: elke werkdag om **{when}** in {kanaal.mention}.",
+            f"✅ Dagoverzicht staat aan: elke werkdag om **{when}** in {channel.mention}.",
             ephemeral=True,
         )
 
-    @dagoverzicht.command(name="uit", description="Zet het dagoverzicht uit. De punten blijven gewoon geteld worden")
+    @summary.command(name="disable", description="Zet het dagoverzicht uit. De punten blijven gewoon geteld worden")
     async def disable_cmd(self, interaction: discord.Interaction) -> None:
         self.bot.repo.set_config(interaction.guild_id, CONFIG_CHANNEL, None)
         self.bot.repo.set_config(interaction.guild_id, CONFIG_TIME, None)
         await interaction.response.send_message("🛑 Dagoverzicht staat uit.", ephemeral=True)
 
-    @dagoverzicht.command(name="nu", description="Toon nu het overzicht van vandaag, zonder te wachten tot het eind van de dag")
-    async def now_cmd(self, interaction: discord.Interaction) -> None:
+    @summary.command(name="list", description="Toon het overzicht van vandaag, zonder te wachten tot het eind van de dag")
+    async def list_cmd(self, interaction: discord.Interaction) -> None:
         embed = self._build_embed(interaction.guild_id, datetime.now(TZ))
         await interaction.response.send_message(embed=embed)
 

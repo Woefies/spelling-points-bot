@@ -178,24 +178,24 @@ class RemindersCog(commands.Cog):
 
     @reminder.command(name="add", description="Maak een eigen herinnering, eenmalig of terugkerend op een of meer vaste tijden")
     @app_commands.describe(
-        bericht="De tekst. Meerdere varianten scheiden met | dan wisselt de bot af: Lunch!|Eten!",
-        tijd="Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00",
-        frequentie="Elke dag, alleen werkdagen, wekelijks, maandelijks of eenmalig",
-        weekdag="Alleen invullen bij wekelijks: op welke dag van de week",
-        dag="Alleen invullen bij maandelijks: welke dag van de maand, 1 t/m 31 (bijv. 24)",
-        datum="Alleen invullen bij eenmalig: de datum als DD-MM-JJJJ, bijv. 24-12-2026",
+        message="De tekst. Meerdere varianten scheiden met | dan wisselt de bot af: Lunch!|Eten!",
+        time="Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00",
+        frequency="Elke dag, alleen werkdagen, wekelijks, maandelijks of eenmalig",
+        weekday="Alleen invullen bij wekelijks: op welke dag van de week",
+        day="Alleen invullen bij maandelijks: welke dag van de maand, 1 t/m 31 (bijv. 24)",
+        date="Alleen invullen bij eenmalig: de datum als DD-MM-JJJJ, bijv. 24-12-2026",
         mention="Wie er gepingd wordt bij deze herinnering. Standaard niemand",
-        kanaal="In welk kanaal. Standaard het kanaal waar je dit commando typt",
+        channel="In welk kanaal. Standaard het kanaal waar je dit commando typt",
     )
     @app_commands.choices(
-        frequentie=[
+        frequency=[
             app_commands.Choice(name="dagelijks", value="daily"),
             app_commands.Choice(name="elke werkdag (ma-vr)", value="weekdays"),
             app_commands.Choice(name="wekelijks", value="weekly"),
             app_commands.Choice(name="maandelijks", value="monthly"),
             app_commands.Choice(name="eenmalig", value="once"),
         ],
-        weekdag=[app_commands.Choice(name=d, value=i) for i, d in enumerate(WEEKDAYS_NL)],
+        weekday=[app_commands.Choice(name=d, value=i) for i, d in enumerate(WEEKDAYS_NL)],
         mention=[
             app_commands.Choice(name="@everyone", value="everyone"),
             app_commands.Choice(name="@here", value="here"),
@@ -205,16 +205,16 @@ class RemindersCog(commands.Cog):
     async def add_cmd(
         self,
         interaction: discord.Interaction,
-        bericht: str,
-        tijd: str,
-        frequentie: app_commands.Choice[str],
-        weekdag: app_commands.Choice[int] | None = None,
-        dag: app_commands.Range[int, 1, 31] | None = None,
-        datum: str | None = None,
+        message: str,
+        time: str,
+        frequency: app_commands.Choice[str],
+        weekday: app_commands.Choice[int] | None = None,
+        day: app_commands.Range[int, 1, 31] | None = None,
+        date: str | None = None,
         mention: app_commands.Choice[str] | None = None,
-        kanaal: discord.TextChannel | None = None,
+        channel: discord.TextChannel | None = None,
     ) -> None:
-        time = _parse_times(tijd)
+        time = _parse_times(time)
         if time is None:
             await interaction.response.send_message(
                 "🚫 Ongeldige tijd. Gebruik HH:MM, bijv. `16:00`. "
@@ -223,25 +223,25 @@ class RemindersCog(commands.Cog):
             )
             return
 
-        freq = frequentie.value
+        freq = frequency.value
         day: int | None = None
         date: str | None = None
 
         if freq == "weekly":
-            if weekdag is None:
+            if weekday is None:
                 await interaction.response.send_message("🚫 Kies een `weekdag` bij een wekelijkse herinnering.", ephemeral=True)
                 return
-            day = weekdag.value
+            day = weekday.value
         elif freq == "monthly":
-            if dag is None:
+            if day is None:
                 await interaction.response.send_message("🚫 Vul `dag` (1-31) in bij een maandelijkse herinnering.", ephemeral=True)
                 return
-            day = dag
+            day = day
         elif freq == "once":
-            if datum is None:
+            if date is None:
                 await interaction.response.send_message("🚫 Vul `datum` in (DD-MM-YYYY) bij een eenmalige herinnering.", ephemeral=True)
                 return
-            date = _parse_date(datum)
+            date = _parse_date(date)
             if date is None:
                 await interaction.response.send_message("🚫 Ongeldige datum. Gebruik DD-MM-YYYY, bijv. `24-12-2026`.", ephemeral=True)
                 return
@@ -252,18 +252,18 @@ class RemindersCog(commands.Cog):
                 await interaction.response.send_message("🚫 Dat moment ligt in het verleden.", ephemeral=True)
                 return
 
-        target = kanaal or interaction.channel
+        target = channel or interaction.channel
         mention_value = mention.value if mention else "none"
 
         reminder_id = self.reminders.add(
-            interaction.guild_id, target.id, bericht, time, freq,
+            interaction.guild_id, target.id, message, time, freq,
             day=day, date=date, mention=mention_value,
         )
 
         await interaction.response.send_message(
             f"✅ Herinnering **#{reminder_id}** aangemaakt: {self._describe(freq, day, date)} "
             f"om **{_format_times(time)}** "
-            f"in {target.mention} — \"{bericht}\"",
+            f"in {target.mention} — \"{message}\"",
             ephemeral=True,
         )
 
@@ -271,9 +271,9 @@ class RemindersCog(commands.Cog):
     @app_commands.autocomplete(id=_reminder_choices)
     @app_commands.describe(
         id="Kies de herinnering uit de lijst",
-        bericht="Nieuwe tekst. Varianten scheiden met | zodat de bot afwisselt",
-        tijd="Nieuwe tijd(en) als HH:MM. Meerdere per dag met komma's: 09:00, 13:00, 17:00",
-        kanaal="Verplaats de herinnering naar een ander kanaal",
+        message="Nieuwe tekst. Varianten scheiden met | zodat de bot afwisselt",
+        time="Nieuwe tijd(en) als HH:MM. Meerdere per dag met komma's: 09:00, 13:00, 17:00",
+        channel="Verplaats de herinnering naar een ander kanaal",
         mention="Wie er gepingd wordt bij deze herinnering",
     )
     @app_commands.choices(
@@ -287,9 +287,9 @@ class RemindersCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         id: int,
-        bericht: str | None = None,
-        tijd: str | None = None,
-        kanaal: discord.TextChannel | None = None,
+        message: str | None = None,
+        time: str | None = None,
+        channel: discord.TextChannel | None = None,
         mention: app_commands.Choice[str] | None = None,
     ) -> None:
         existing = self.reminders.get(interaction.guild_id, id)
@@ -301,8 +301,8 @@ class RemindersCog(commands.Cog):
             return
 
         times = None
-        if tijd is not None:
-            times = _parse_times(tijd)
+        if time is not None:
+            times = _parse_times(time)
             if times is None:
                 await interaction.response.send_message(
                     "🚫 Ongeldige tijd. Gebruik HH:MM, meerdere gescheiden door komma's.",
@@ -310,7 +310,7 @@ class RemindersCog(commands.Cog):
                 )
                 return
 
-        if bericht is None and times is None and kanaal is None and mention is None:
+        if message is None and times is None and channel is None and mention is None:
             await interaction.response.send_message(
                 "🚫 Vul minstens één veld in dat je wilt wijzigen.", ephemeral=True
             )
@@ -319,9 +319,9 @@ class RemindersCog(commands.Cog):
         self.reminders.update(
             interaction.guild_id,
             id,
-            message=bericht,
+            message=message,
             time=times,
-            channel_id=kanaal.id if kanaal else None,
+            channel_id=channel.id if channel else None,
             mention=mention.value if mention else None,
         )
 

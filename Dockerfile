@@ -4,6 +4,13 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
+# Hunspell dictionaries. These carry the affix and compounding rules that make
+# Dutch checkable at all — a flat word list can never contain "zonnebrandcreme".
+# Debian's hunspell-nl is built from OpenTaal.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends hunspell-nl hunspell-en-us \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install deps first for layer caching

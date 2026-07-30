@@ -58,7 +58,7 @@ class BackupCog(commands.Cog):
         guild_only=True,
     )
 
-    @backup.command(name="nu", description="Maak nu direct een back-up. Gebeurt sowieso automatisch elke nacht om 04:00")
+    @backup.command(name="now", description="Maak nu direct een back-up. Gebeurt sowieso automatisch elke nacht om 04:00")
     async def now_cmd(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -76,13 +76,13 @@ class BackupCog(commands.Cog):
             f"✅ Back-up gemaakt: `{path.name}`\n{summary}", ephemeral=True
         )
 
-    @backup.command(name="lijst", description="Toon welke back-ups er zijn, hoe recent en hoe groot")
+    @backup.command(name="list", description="Toon welke back-ups er zijn, hoe recent en hoe groot")
     async def list_cmd(self, interaction: discord.Interaction) -> None:
         dest = backup_dir_for(self.bot.settings.db_path)
         snapshots = sorted(dest.glob("config-backup-*.json"), reverse=True)
         if not snapshots:
             await interaction.response.send_message(
-                "Er zijn nog geen back-ups. Maak er een met `/backup nu`.", ephemeral=True
+                "Er zijn nog geen back-ups. Maak er een met `/backup now`.", ephemeral=True
             )
             return
 

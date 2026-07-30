@@ -28,22 +28,29 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 
 | Commando | Wat het doet |
 |---|---|
-| `/whitelist add <woord>` | Woord voortaan goedkeuren in deze server |
-| `/whitelist remove <woord>` | Woord weer meetellen |
+| `/whitelist add <woorden>` | Woorden goedkeuren, meerdere met komma's |
+| `/whitelist remove <woorden>` | Woorden weer laten meetellen |
+| `/whitelist list` | Toon welke woorden goedgekeurd zijn |
 | `/say` | De bot iets laten zeggen — niemand ziet dat jij het was |
 | `/reminder add\|list\|remove` | Eigen herinneringen beheren |
 | `/reminder edit <id>` | Tekst, tijd, kanaal of mention aanpassen |
 | `/trigger add\|list\|remove` | Eigen trefwoorden beheren |
-| `/dagoverzicht aan\|uit\|nu` | Het dagelijkse overzicht regelen |
-| `/backup nu` | Nu een back-up van de configuratie maken |
-| `/backup lijst` | Bestaande back-ups tonen |
+| `/trigger edit <id>` | Woorden, antwoord of reacties aanpassen |
+| `/summary enable\|uit\|list` | Het dagelijkse overzicht regelen |
+| `/backup now` | Nu een back-up van de configuratie maken |
+| `/backup list` | Bestaande back-ups tonen |
 | `/reset` | Herinneringen, triggers, whitelist of punten wissen |
+| `/punish mode` | Straffen uit, waarschuwen, of echt dempen |
+| `/punish threshold` | Na hoeveel fouten per dag de eerste mute volgt |
+| `/punish ladder` | Hoe lang elke mute duurt, in minuten |
+| `/punish message` | Zelf schrijven wat de bot zegt bij een mute |
+| `/punish status` | Alle instellingen en de hele mute-ladder |
 
 Bij `/reminder add` en `/trigger add` kun je meerdere teksten scheiden met een
 `|`. De bot kiest er elke keer willekeurig één, zodat een dagelijks bericht niet
 gaat vervelen.
 
-Bij `/reminder edit`, `/reminder remove` en `/trigger remove` hoef je geen
+Bij `/reminder edit`, `/reminder remove`, `/trigger edit` en `/trigger remove` hoef je geen
 nummer te onthouden — je kiest uit een lijst zodra je begint te typen.
 
 `/reset` maakt altijd eerst een back-up voordat er iets weggegooid wordt, en
@@ -53,9 +60,34 @@ Moet een herinnering meerdere keren per dag afgaan, vul dan meerdere tijden in
 gescheiden door komma's: `09:00, 11:00, 13:00, 15:00, 17:00`. Dat is één
 herinnering met één ID, dus je past de tekst ook maar op één plek aan.
 
+## Mutes
+
+Maak je te veel fouten op één dag, dan kan de bot je tijdelijk het zwijgen
+opleggen. Dat begint bij 1 minuut en loopt op tot maximaal 30. Elke dag begint
+de teller opnieuw.
+
+Dit staat standaard **uit**, en gaat eerst in waarschuwingsmodus draaien: de bot
+zegt dan wel wie er gemute zóu worden, maar dempt niemand. Beheerders regelen
+alles zelf met `/punish` — de drempel, hoe lang elke mute duurt, en zelfs wat de
+bot precies zegt. Daar is geen update van de bot voor nodig.
+
+De teksten mogen `{user}`, `{count}` en `{minutes}` bevatten. Bijvoorbeeld:
+`Hup {user}, {count} fouten. Even {minutes} stil.`
+
+## Rustig aan met commando's
+
+Meer dan 5 commando's binnen 15 seconden en de bot vraagt je even te wachten.
+Dat merk je bij normaal gebruik niet.
+
 ## Onterecht een punt gekregen?
 
 Dat kan, en het ligt niet aan jou. De bot rekent samengestelde woorden als
 "zonnebrandcrème" nu nog fout, en namen en straattaal kent hij ook niet allemaal.
 Meld het even, dan zet een beheerder het woord op de whitelist met
 `/whitelist add`.
+
+## Een opmerking over de taal
+
+De commando's zelf zijn Engels — `add`, `list`, `remove`, `edit` — omdat dat in
+Discord de standaard is en overal hetzelfde werkt. Alles wat de bot terugzegt,
+en alle uitleg die je ziet tijdens het typen, is Nederlands.
