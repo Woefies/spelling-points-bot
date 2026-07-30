@@ -8,7 +8,14 @@ from repositories.base import ScoreRepository, Trigger
 class SqliteScoreRepository(ScoreRepository):
     def __init__(self, path: str) -> None:
         pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(path, check_same_thread=False)
+        # timeout is the busy timeout: wait rather than raising "database is
+        # locked" the moment the other connection to this file holds a write.
+        self._conn = sqlite3.connect(path, check_same_thread=False, timeout=5.0)
+        # WAL lets readers work while a writer holds the file. Two repositories
+        # share this database, and writes land on every message plus a nightly
+        # backup and a daily summary — the default rollback journal serialises
+        # all of that. The setting is persistent, so setting it twice is a no-op.
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._lock = threading.Lock()
         self._init_tables()
 
