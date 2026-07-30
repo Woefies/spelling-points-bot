@@ -98,11 +98,12 @@ class DailySummaryCog(commands.Cog):
         guild = self.bot.get_guild(guild_id)
         lines = []
         for rank, (user_id, count) in enumerate(rows, start=1):
-            # A mention inside an embed renders as the name but does not notify,
-            # so this addresses people directly without pinging the whole list.
+            # Plain names, not mentions: an overview is something you scan, and a
+            # list of mentions reads as if everyone is being addressed. Tagging is
+            # for messages aimed at one person, like a warning or a mute.
             member = guild.get_member(user_id) if guild else None
-            who = member.mention if member else f"Gebruiker {user_id}"
-            lines.append(f"{MEDALS.get(rank, f'{rank}.')} {who} — {count}")
+            name = member.display_name if member else f"Gebruiker {user_id}"
+            lines.append(f"{MEDALS.get(rank, f'{rank}.')} **{name}** — {count}")
 
             words = by_user.get(user_id, [])
             if words:
