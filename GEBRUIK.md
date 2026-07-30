@@ -39,6 +39,9 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/summary enable\|uit\|list` | Het dagelijkse overzicht regelen |
 | `/backup create` | Nu een back-up van de configuratie maken |
 | `/backup list` | Bestaande back-ups tonen |
+| `/backup restore` | Een gedownloade back-up terugzetten |
+| `/settings show` | Hoe streng de spellingcheck nu staat |
+| `/settings points\|reply\|minwords\|capitals` | Die strengheid bijstellen |
 | `/backup download` | Nieuwste back-up als bestand, alleen naar jou |
 | `/whitelist export` | Whitelist als tekstbestand |
 | `/flagged` | Welke woorden het vaakst fout gerekend worden |

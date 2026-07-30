@@ -141,6 +141,11 @@ class ScoreRepository(ABC):
         ...
 
     @abstractmethod
+    def config_for(self, guild_id: int) -> dict[str, str]:
+        """Every setting for one guild in a single read — this runs per message."""
+        ...
+
+    @abstractmethod
     def all_config(self, key: str) -> list[tuple[int, str]]:
         """(guild_id, value) for every guild that has this key set."""
         ...

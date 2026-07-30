@@ -334,6 +334,13 @@ class SqliteScoreRepository(ScoreRepository):
             self._conn.commit()
         return cur.rowcount
 
+    def config_for(self, guild_id: int) -> dict[str, str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT key, value FROM guild_config WHERE guild_id = ?", (guild_id,)
+            ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
     def all_config(self, key: str) -> list[tuple[int, str]]:
         with self._lock:
             cur = self._conn.execute(

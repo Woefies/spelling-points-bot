@@ -6,6 +6,7 @@ from discord.ext import commands
 from services.cleaner import clean
 from services.detector import detect
 from services.checkers import REGISTRY
+from services.guild_settings import resolve
 from services.lexicon import SKIP_WORDS
 
 
@@ -24,7 +25,11 @@ class SpellingCog(commands.Cog):
         if not cleaned.strip():
             return
 
-        lang = detect(cleaned, self.bot.settings.min_words_for_detect)
+        # One read per message, merged over the .env defaults — a server can dial
+        # the checker down without anyone touching the host.
+        conf = resolve(self.bot.repo.config_for(message.guild.id), self.bot.settings)
+
+        lang = detect(cleaned, conf["min_words_for_detect"])
         if lang is None:
             return
 
@@ -33,7 +38,7 @@ class SpellingCog(commands.Cog):
         } | SKIP_WORDS
         ctx = {
             "whitelist": wl,
-            "skip_capitalized": self.bot.settings.skip_capitalized,
+            "skip_capitalized": conf["skip_capitalized"],
             "hunspell_dir": self.bot.settings.hunspell_dir,
         }
 
@@ -45,7 +50,7 @@ class SpellingCog(commands.Cog):
         if not all_issues:
             return
 
-        points = len(all_issues) * self.bot.settings.points_per_mistake
+        points = len(all_issues) * conf["points_per_mistake"]
         self.bot.repo.add_points(message.guild.id, message.author.id, points)
         for iss in all_issues:
             self.bot.repo.log_issue(message.guild.id, message.author.id, iss.word, iss.lang, iss.kind)
@@ -59,7 +64,7 @@ class SpellingCog(commands.Cog):
         except discord.HTTPException:
             pass
 
-        if self.bot.settings.reply_on_mistake:
+        if conf["reply_on_mistake"]:
             total = self.bot.repo.get_score(message.guild.id, message.author.id)
             words = ", ".join(f"`{i.word}`" for i in all_issues[:10])
             await message.reply(
