@@ -30,6 +30,7 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 |---|---|
 | `/whitelist add <woord>` | Woord voortaan goedkeuren in deze server |
 | `/whitelist remove <woord>` | Woord weer meetellen |
+| `/whitelist list` | Toon welke woorden goedgekeurd zijn |
 | `/say` | De bot iets laten zeggen — niemand ziet dat jij het was |
 | `/reminder add\|list\|remove` | Eigen herinneringen beheren |
 | `/reminder edit <id>` | Tekst, tijd, kanaal of mention aanpassen |

@@ -4,6 +4,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from services.lexicon import CHAT_SLANG
+
 
 class AdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -26,6 +28,34 @@ class AdminCog(commands.Cog):
     async def whitelist_remove(self, ctx: commands.Context, word: str) -> None:
         self.bot.repo.remove_whitelist(ctx.guild.id, word.lower())
         await ctx.reply(f"🗑️ `{word.lower()}` telt weer mee als spelfout.", ephemeral=True)
+
+    @whitelist.command(name="list", description="Toon welke woorden de bot in deze server goedkeurt")
+    async def whitelist_list(self, ctx: commands.Context) -> None:
+        words = sorted(self.bot.repo.get_whitelist(ctx.guild.id))
+        builtin = len(self.bot.settings.whitelist) + len(CHAT_SLANG)
+
+        if not words:
+            await ctx.reply(
+                f"Deze server heeft nog geen eigen woorden op de whitelist.\n"
+                f"Er zijn er wel **{builtin}** ingebouwd (chattaal zoals `idk` en `gwn`).\n"
+                f"Toevoegen kan met `/whitelist add <woord>`.",
+                ephemeral=True,
+            )
+            return
+
+        # A long whitelist would blow past Discord's 2000-character message limit.
+        shown, total = words, len(words)
+        text = ", ".join(f"`{w}`" for w in shown)
+        while len(text) > 1600 and shown:
+            shown = shown[:-25]
+            text = ", ".join(f"`{w}`" for w in shown)
+
+        tail = f"\n\n_… en nog {total - len(shown)} meer._" if len(shown) < total else ""
+        await ctx.reply(
+            f"📗 **{total}** eigen woord(en) op de whitelist, plus **{builtin}** ingebouwd:\n"
+            f"{text}{tail}",
+            ephemeral=True,
+        )
 
     @whitelist.error
     async def whitelist_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
