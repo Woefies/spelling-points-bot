@@ -7,6 +7,7 @@ or a person.
 
 import datetime
 import logging
+from pathlib import Path
 
 import aiohttp
 import discord
@@ -19,6 +20,7 @@ RAW_URL = "https://raw.githubusercontent.com/{repo}/{branch}/VERSION"
 
 CONFIG_CHANNEL = "update_channel"
 CONFIG_ANNOUNCED = "update_announced"  # last version we already mentioned
+REQUEST_FILE = ".update-requested"  # picked up by scripts/auto_update.sh
 # Fixed offset rather than ZoneInfo, matching cogs/backup.py: an hour of drift in
 # summer is irrelevant for a daily check.
 CHECK_AT = datetime.time(hour=9, minute=0, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
@@ -115,6 +117,49 @@ class VersionCog(commands.Cog):
         await interaction.response.send_message(
             f"✅ Updatemeldingen staan aan in {channel.mention}.\n"
             "_De bot meldt het alleen — uitrollen blijft handwerk of de taakplanner._",
+            ephemeral=True,
+        )
+
+    @update.command(name="now", description="Vraag een update aan. De taakplanner pakt hem op")
+    async def now_cmd(self, interaction: discord.Interaction) -> None:
+        # A file in the mounted data volume, not a rebuild: the bot runs inside
+        # the container being replaced, and giving it the Docker socket would
+        # hand host-level access to something that reacts to user messages.
+        path = Path(self.bot.settings.db_path).parent / REQUEST_FILE
+        latest = await self._fetch_latest()
+        running = self.bot.settings.version
+
+        if path.exists():
+            await interaction.response.send_message(
+                "ℹ️ Er staat al een verzoek klaar. De taakplanner pakt het op bij de "
+                "volgende ronde.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            path.write_text(
+                f"requested by {interaction.user} at "
+                f"{discord.utils.utcnow().isoformat(timespec='seconds')}\n",
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            await interaction.response.send_message(
+                f"🚫 Kon het verzoek niet wegschrijven: `{exc}`", ephemeral=True
+            )
+            return
+
+        log.info("%s requested an update in guild %s", interaction.user, interaction.guild_id)
+        note = (
+            f"Er staat **v{latest}** klaar, deze draait **v{running}**."
+            if latest and latest != running
+            else f"Er is geen nieuwere versie — hij herbouwt op **v{running}**."
+        )
+        await interaction.response.send_message(
+            f"📥 Verzoek genoteerd. {note}\n"
+            "De bot herstart zichzelf zodra de taakplanner langskomt; controleer daarna "
+            "met `/version`.\n"
+            "_Werkt alleen als `scripts/auto_update.sh` als taak is ingesteld._",
             ephemeral=True,
         )
 

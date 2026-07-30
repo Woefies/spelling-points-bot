@@ -168,6 +168,8 @@ Triggers and config live on `SqliteScoreRepository` rather than in a repo of the
 
 It detects whether Docker needs `sudo` rather than hardcoding it, so it works both from a scheduler running as root and from a user in the docker group.
 
+`/update now` drops a request file in the mounted data volume, which the script picks up on its next run. **The bot deliberately cannot rebuild itself** — that would mean mounting the Docker socket into a container that reacts to patterns taken from user messages, i.e. host-level access behind a trigger anyone can type. The file is cleared *before* the rebuild rather than after, so a request that produces a failing build does not retry on every scheduled run forever; `--check` leaves it alone, since check mode must change nothing.
+
 `cogs/version.py` separately announces a new version once per version into a configured channel (`/update enable`). Announcing is not deploying: the two are deliberately separate, so a team that does not want unattended deploys still learns that something is waiting.
 
 ## Deployment

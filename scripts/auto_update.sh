@@ -10,6 +10,10 @@
 #   ./scripts/auto_update.sh --check    # report only, change nothing
 #   ./scripts/auto_update.sh --force    # rebuild even when versions match
 #
+# /update now inside Discord drops a request file in the data volume, which this
+# picks up on its next run. The bot cannot rebuild itself — that would mean
+# mounting the Docker socket into a container that reacts to user input.
+#
 # Exit codes: 0 nothing to do or update succeeded, 1 update failed (rolled back),
 # 2 could not determine what is running or what is available.
 set -uo pipefail
@@ -21,6 +25,7 @@ BRANCH="${GITHUB_BRANCH:-master}"
 CONTAINER="${SPELLBOT_CONTAINER:-discord_bot-spellbot-1}"
 COMPOSE="${DOCKER_COMPOSE:-docker compose}"
 SETTLE_SECONDS="${SETTLE_SECONDS:-25}"
+REQUEST_FILE="${REQUEST_FILE:-data/.update-requested}"
 
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
@@ -52,11 +57,28 @@ current="$(running_version)"
 
 log "running: ${current:-unknown} | available: $latest"
 
+requested=""
+if [ -f "$REQUEST_FILE" ]; then
+    requested="yes"
+    log "update requested from Discord: $(cat "$REQUEST_FILE" 2>/dev/null | head -1)"
+fi
+
 case "${1:-}" in
-    --check) [ "$current" = "$latest" ] && log "up to date" || log "update available"; exit 0 ;;
+    --check)
+        [ "$current" = "$latest" ] && log "up to date" || log "update available"
+        [ -n "$requested" ] && log "a manual update is pending"
+        exit 0 ;;
     --force) log "forcing a rebuild" ;;
-    *) [ "$current" = "$latest" ] && { log "already up to date, nothing to do"; exit 0; } ;;
+    *)
+        if [ "$current" = "$latest" ] && [ -z "$requested" ]; then
+            log "already up to date, nothing to do"
+            exit 0
+        fi ;;
 esac
+
+# Clear the request before doing the work, not after: a request that survives a
+# failed rebuild would retry forever on every scheduled run.
+[ -n "$requested" ] && rm -f "$REQUEST_FILE"
 
 # Remember where we are so a failed update can be undone. The image is what
 # actually runs, so tagging it is what makes the rollback real — resetting git
