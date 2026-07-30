@@ -1,9 +1,11 @@
-"""Reminders cog: scheduled channel reminders (daily / weekly / monthly / once).
+"""Reminders cog: scheduled channel reminders.
 
-/reminder setup #kanaal  -> seeds the default reminders:
-    - daily 16:00  "@everyone ⏰ Check je uren!"
-    - monthly 24th 16:00  "@everyone 💰 Het is payday!"
+Frequencies: daily / weekdays (Mon-Fri) / weekly / monthly / once.
+A reminder holds one *or more* times of day, stored comma-separated in one row.
+
+/reminder preset #kanaal -> seeds the fixed PK set
 /reminder add            -> custom reminders
+/reminder edit <id>      -> change text, time, channel or mention in place
 /reminder list           -> overview with IDs
 /reminder remove <id>    -> delete by ID
 """
@@ -33,10 +35,8 @@ _FIRST_OF_MONTH_MESSAGE = (
 PK_PRESET: list[tuple[str, str, str, int | None, str]] = [
     ("Goede….MORGEN..Team...Minigames!", "09:00", "weekdays", None, "none"),
     ("Jongens allemaal naar paars!", "09:30", "weekdays", None, "none"),
-    *[
-        (_FIRST_OF_MONTH_MESSAGE, t, "monthly", 1, "everyone")
-        for t in ("09:00", "11:00", "13:00", "15:00", "17:00")
-    ],
+    # One row, five times — used to be five near-identical rows.
+    (_FIRST_OF_MONTH_MESSAGE, "09:00,11:00,13:00,15:00,17:00", "monthly", 1, "everyone"),
     ("💰 Salaris komt er aan!", "09:00", "monthly", 24, "everyone"),
 ]
 
@@ -49,13 +49,36 @@ MENTION_PREFIX = {
 WEEKDAYS_NL = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
 
 
-def _parse_time(value: str) -> str | None:
-    """Validate and normalise 'H:MM' / 'HH:MM' -> 'HH:MM'; None if invalid."""
-    try:
-        parsed = datetime.strptime(value.strip(), "%H:%M")
-    except ValueError:
+def _parse_times(value: str) -> str | None:
+    """Parse 'HH:MM' or 'HH:MM, HH:MM, ...' into a normalised, sorted, deduped string.
+
+    A reminder that has to fire several times a day is one row with several
+    times, not several rows — one message to edit, one ID to remember.
+    Returns None if any part is not a valid time.
+    """
+    parts = [p.strip() for p in value.split(",") if p.strip()]
+    if not parts:
         return None
-    return parsed.strftime("%H:%M")
+
+    times = set()
+    for part in parts:
+        try:
+            times.add(datetime.strptime(part, "%H:%M").strftime("%H:%M"))
+        except ValueError:
+            return None
+    return ",".join(sorted(times))
+
+
+def _times_of(reminder_time: str) -> list[str]:
+    return [t for t in reminder_time.split(",") if t]
+
+
+def _format_times(reminder_time: str) -> str:
+    """'09:00,11:00,13:00' -> '09:00, 11:00 en 13:00'."""
+    times = _times_of(reminder_time)
+    if len(times) == 1:
+        return times[0]
+    return f"{', '.join(times[:-1])} en {times[-1]}"
 
 
 def _parse_date(value: str) -> str | None:
@@ -94,7 +117,14 @@ class RemindersCog(commands.Cog):
         current_time = now.strftime("%H:%M")
 
         for rem in self.reminders.all():
-            if rem.time != current_time or rem.last_fired == today:
+            if current_time not in _times_of(rem.time):
+                continue
+            # last_fired records date *and* slot, so a reminder with several times
+            # can fire at each of them while the 30s loop still can't double-send
+            # within one minute. Older rows hold a bare date, which simply never
+            # matches — costing one extra send on the day of the upgrade.
+            slot = f"{today} {current_time}"
+            if rem.last_fired == slot:
                 continue
 
             due = False
@@ -126,7 +156,7 @@ class RemindersCog(commands.Cog):
             if rem.frequency == "once":
                 self.reminders.remove(rem.guild_id, rem.id)
             else:
-                self.reminders.mark_fired(rem.id, today)
+                self.reminders.mark_fired(rem.id, slot)
 
     @check_reminders.before_loop
     async def before_check(self) -> None:
@@ -136,13 +166,13 @@ class RemindersCog(commands.Cog):
 
     reminder = app_commands.Group(
         name="reminder",
-        description="Beheer geplande herinneringen",
+        description="Beheer geplande herinneringen — begin met /reminder list voor een overzicht",
         default_permissions=discord.Permissions(manage_guild=True),
         guild_only=True,
     )
 
-    @reminder.command(name="setup", description="Stel het kanaal in en maak de standaard-reminders aan (uren + payday)")
-    @app_commands.describe(kanaal="Kanaal waar de standaard-reminders gestuurd worden")
+    @reminder.command(name="setup", description="Verouderd, gebruik /reminder preset. Maakt de twee oude standaard-reminders aan")
+    @app_commands.describe(kanaal="Kanaal waar de standaard-reminders in geplaatst worden")
     async def setup_cmd(self, interaction: discord.Interaction, kanaal: discord.TextChannel) -> None:
         created = []
 
@@ -162,18 +192,20 @@ class RemindersCog(commands.Cog):
 
         if created:
             await interaction.response.send_message(
-                f"✅ Standaard-reminders aangemaakt in {kanaal.mention}:\n" + "\n".join(f"• {c}" for c in created)
+                f"✅ Standaard-reminders aangemaakt in {kanaal.mention}:\n" + "\n".join(f"• {c}" for c in created),
+                ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                "ℹ️ De standaard-reminders bestaan al. Gebruik `/reminder list` om ze te bekijken."
+                "ℹ️ De standaard-reminders bestaan al. Gebruik `/reminder list` om ze te bekijken.",
+                ephemeral=True,
             )
 
     @reminder.command(
         name="preset",
-        description="Maak de vaste PK-reminders aan (minigames, paars, uren 1e v/d maand, salaris)",
+        description="Maakt in een keer alle vaste PK-reminders aan: minigames, paars, uren en salaris",
     )
-    @app_commands.describe(kanaal="Kanaal waar deze reminders in geplaatst worden")
+    @app_commands.describe(kanaal="Kanaal waar alle PK-reminders in geplaatst worden")
     async def preset_cmd(self, interaction: discord.Interaction, kanaal: discord.TextChannel) -> None:
         created = []
         skipped = 0
@@ -186,7 +218,7 @@ class RemindersCog(commands.Cog):
                 interaction.guild_id, kanaal.id, message, time, frequency,
                 day=day, mention=mention,
             )
-            created.append(f"{self._describe(frequency, day, None)} om {time}")
+            created.append(f"{self._describe(frequency, day, None)} om {_format_times(time)}")
 
         if not created:
             await interaction.response.send_message(
@@ -197,19 +229,20 @@ class RemindersCog(commands.Cog):
         summary = "\n".join(f"• {c}" for c in created)
         tail = f"\n\n_{skipped} bestonden al en zijn overgeslagen._" if skipped else ""
         await interaction.response.send_message(
-            f"✅ {len(created)} reminder(s) aangemaakt in {kanaal.mention}:\n{summary}{tail}"
+            f"✅ {len(created)} reminder(s) aangemaakt in {kanaal.mention}:\n{summary}{tail}",
+            ephemeral=True,
         )
 
-    @reminder.command(name="add", description="Maak een eigen herinnering aan")
+    @reminder.command(name="add", description="Maak een eigen herinnering, eenmalig of terugkerend op een of meer vaste tijden")
     @app_commands.describe(
-        bericht="De tekst. Scheid varianten met | — de bot kiest er elke keer willekeurig een.",
-        tijd="Tijd in HH:MM (bijv. 16:00, Nederlandse tijd)",
-        frequentie="Hoe vaak de herinnering herhaald wordt",
-        weekdag="Alleen bij wekelijks: op welke dag",
-        dag="Alleen bij maandelijks: dag van de maand (1-31)",
-        datum="Alleen bij eenmalig: datum als DD-MM-YYYY",
-        mention="Wie er gepinged wordt (standaard: niemand)",
-        kanaal="Kanaal voor deze herinnering (standaard: dit kanaal)",
+        bericht="De tekst. Meerdere varianten scheiden met | dan wisselt de bot af: Lunch!|Eten!",
+        tijd="Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00",
+        frequentie="Elke dag, alleen werkdagen, wekelijks, maandelijks of eenmalig",
+        weekdag="Alleen invullen bij wekelijks: op welke dag van de week",
+        dag="Alleen invullen bij maandelijks: welke dag van de maand, 1 t/m 31 (bijv. 24)",
+        datum="Alleen invullen bij eenmalig: de datum als DD-MM-JJJJ, bijv. 24-12-2026",
+        mention="Wie er gepingd wordt bij deze herinnering. Standaard niemand",
+        kanaal="In welk kanaal. Standaard het kanaal waar je dit commando typt",
     )
     @app_commands.choices(
         frequentie=[
@@ -238,9 +271,13 @@ class RemindersCog(commands.Cog):
         mention: app_commands.Choice[str] | None = None,
         kanaal: discord.TextChannel | None = None,
     ) -> None:
-        time = _parse_time(tijd)
+        time = _parse_times(tijd)
         if time is None:
-            await interaction.response.send_message("🚫 Ongeldige tijd. Gebruik HH:MM, bijv. `16:00`.", ephemeral=True)
+            await interaction.response.send_message(
+                "🚫 Ongeldige tijd. Gebruik HH:MM, bijv. `16:00`. "
+                "Meerdere momenten per dag scheid je met komma's: `09:00, 13:00`.",
+                ephemeral=True,
+            )
             return
 
         freq = frequentie.value
@@ -265,7 +302,10 @@ class RemindersCog(commands.Cog):
             if date is None:
                 await interaction.response.send_message("🚫 Ongeldige datum. Gebruik DD-MM-YYYY, bijv. `24-12-2026`.", ephemeral=True)
                 return
-            if datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M").replace(tzinfo=TZ) <= datetime.now(TZ):
+            # Check the earliest slot: times are stored sorted, and a one-off is
+            # only pointless if even its first moment has already passed.
+            earliest = _times_of(time)[0]
+            if datetime.strptime(f"{date} {earliest}", "%Y-%m-%d %H:%M").replace(tzinfo=TZ) <= datetime.now(TZ):
                 await interaction.response.send_message("🚫 Dat moment ligt in het verleden.", ephemeral=True)
                 return
 
@@ -278,15 +318,84 @@ class RemindersCog(commands.Cog):
         )
 
         await interaction.response.send_message(
-            f"✅ Herinnering **#{reminder_id}** aangemaakt: {self._describe(freq, day, date)} om **{time}** "
-            f"in {target.mention} — \"{bericht}\""
+            f"✅ Herinnering **#{reminder_id}** aangemaakt: {self._describe(freq, day, date)} "
+            f"om **{_format_times(time)}** "
+            f"in {target.mention} — \"{bericht}\"",
+            ephemeral=True,
         )
 
-    @reminder.command(name="list", description="Toon alle herinneringen van deze server")
+    @reminder.command(name="edit", description="Pas tekst, tijd, kanaal of mention aan zonder de herinnering opnieuw te maken")
+    @app_commands.describe(
+        id="Het nummer uit /reminder list, bijv. 8",
+        bericht="Nieuwe tekst. Varianten scheiden met | zodat de bot afwisselt",
+        tijd="Nieuwe tijd(en) als HH:MM. Meerdere per dag met komma's: 09:00, 13:00, 17:00",
+        kanaal="Verplaats de herinnering naar een ander kanaal",
+        mention="Wie er gepingd wordt bij deze herinnering",
+    )
+    @app_commands.choices(
+        mention=[
+            app_commands.Choice(name="@everyone", value="everyone"),
+            app_commands.Choice(name="@here", value="here"),
+            app_commands.Choice(name="niemand", value="none"),
+        ],
+    )
+    async def edit_cmd(
+        self,
+        interaction: discord.Interaction,
+        id: int,
+        bericht: str | None = None,
+        tijd: str | None = None,
+        kanaal: discord.TextChannel | None = None,
+        mention: app_commands.Choice[str] | None = None,
+    ) -> None:
+        existing = self.reminders.get(interaction.guild_id, id)
+        if existing is None:
+            await interaction.response.send_message(
+                f"🚫 Geen herinnering met ID **{id}**. Bekijk ze met `/reminder list`.",
+                ephemeral=True,
+            )
+            return
+
+        times = None
+        if tijd is not None:
+            times = _parse_times(tijd)
+            if times is None:
+                await interaction.response.send_message(
+                    "🚫 Ongeldige tijd. Gebruik HH:MM, meerdere gescheiden door komma's.",
+                    ephemeral=True,
+                )
+                return
+
+        if bericht is None and times is None and kanaal is None and mention is None:
+            await interaction.response.send_message(
+                "🚫 Vul minstens één veld in dat je wilt wijzigen.", ephemeral=True
+            )
+            return
+
+        self.reminders.update(
+            interaction.guild_id,
+            id,
+            message=bericht,
+            time=times,
+            channel_id=kanaal.id if kanaal else None,
+            mention=mention.value if mention else None,
+        )
+
+        updated = self.reminders.get(interaction.guild_id, id)
+        channel = self.bot.get_channel(updated.channel_id)
+        where = channel.mention if channel else f"kanaal {updated.channel_id}"
+        await interaction.response.send_message(
+            f"✏️ Herinnering **#{id}** aangepast: "
+            f"{self._describe(updated.frequency, updated.day, updated.date)} om "
+            f"**{_format_times(updated.time)}** in {where} — \"{updated.message}\"",
+            ephemeral=True,
+        )
+
+    @reminder.command(name="list", description="Toon alle herinneringen met hun ID, tijden en kanaal")
     async def list_cmd(self, interaction: discord.Interaction) -> None:
         rows = self.reminders.list_for_guild(interaction.guild_id)
         if not rows:
-            await interaction.response.send_message("Er zijn nog geen herinneringen. Gebruik `/reminder setup` of `/reminder add`.")
+            await interaction.response.send_message("Er zijn nog geen herinneringen. Gebruik `/reminder setup` of `/reminder add`.", ephemeral=True)
             return
 
         embed = discord.Embed(title="⏰ Herinneringen", color=discord.Color.blurple())
@@ -296,17 +405,18 @@ class RemindersCog(commands.Cog):
             channel_name = channel.mention if channel else f"kanaal {rem.channel_id}"
             ping = f" ({MENTION_PREFIX[rem.mention].strip()})" if rem.mention != "none" else ""
             lines.append(
-                f"**#{rem.id}** — {self._describe(rem.frequency, rem.day, rem.date)} om **{rem.time}** "
+                f"**#{rem.id}** — {self._describe(rem.frequency, rem.day, rem.date)} "
+                f"om **{_format_times(rem.time)}** "
                 f"in {channel_name}{ping}\n> {rem.message}"
             )
         embed.description = "\n\n".join(lines)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @reminder.command(name="remove", description="Verwijder een herinnering op ID")
-    @app_commands.describe(id="Het ID uit /reminder list")
+    @reminder.command(name="remove", description="Verwijder een herinnering aan de hand van het ID uit /reminder list")
+    @app_commands.describe(id="Het nummer uit /reminder list, bijv. 8")
     async def remove_cmd(self, interaction: discord.Interaction, id: int) -> None:
         if self.reminders.remove(interaction.guild_id, id):
-            await interaction.response.send_message(f"🗑️ Herinnering **#{id}** verwijderd.")
+            await interaction.response.send_message(f"🗑️ Herinnering **#{id}** verwijderd.", ephemeral=True)
         else:
             await interaction.response.send_message(f"🚫 Geen herinnering gevonden met ID **{id}**.", ephemeral=True)
 

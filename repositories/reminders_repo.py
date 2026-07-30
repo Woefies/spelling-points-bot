@@ -73,6 +73,46 @@ class SqliteReminderRepository:
             self._conn.commit()
         return cur.lastrowid
 
+    _COLUMNS = (
+        "id, guild_id, channel_id, message, time, frequency, day, date, mention, last_fired"
+    )
+
+    def get(self, guild_id: int, reminder_id: int) -> Reminder | None:
+        with self._lock:
+            cur = self._conn.execute(
+                f"SELECT {self._COLUMNS} FROM reminders WHERE guild_id = ? AND id = ?",
+                (guild_id, reminder_id),
+            )
+            row = cur.fetchone()
+        return self._row_to_reminder(row) if row else None
+
+    def update(
+        self,
+        guild_id: int,
+        reminder_id: int,
+        *,
+        message: str | None = None,
+        time: str | None = None,
+        channel_id: int | None = None,
+        mention: str | None = None,
+    ) -> bool:
+        """Patch only the fields that were given. Frequency/day/date are not
+        editable — changing those needs the validation that lives in the add
+        command, so removing and re-adding is the honest path."""
+        fields = {"message": message, "time": time, "channel_id": channel_id, "mention": mention}
+        changes = {k: v for k, v in fields.items() if v is not None}
+        if not changes:
+            return False
+
+        assignments = ", ".join(f"{k} = ?" for k in changes)
+        params = [*changes.values(), guild_id, reminder_id]
+        with self._lock:
+            cur = self._conn.execute(
+                f"UPDATE reminders SET {assignments} WHERE guild_id = ? AND id = ?", params
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
     def remove(self, guild_id: int, reminder_id: int) -> bool:
         with self._lock:
             cur = self._conn.execute(

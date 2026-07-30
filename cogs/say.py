@@ -17,10 +17,10 @@ class SayCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="say", description="Laat de bot een bericht plaatsen")
+    @app_commands.command(name="say", description="Laat de bot een bericht plaatsen. Niemand ziet dat jij het was")
     @app_commands.describe(
-        bericht="Wat de bot moet zeggen. Gebruik \\n voor een nieuwe regel.",
-        kanaal="Kanaal om in te posten (standaard: het huidige kanaal)",
+        bericht="Wat de bot zegt. \\n = nieuwe regel, \\n\\n = witregel. Maximaal 2000 tekens",
+        kanaal="Waar het bericht komt. Standaard het kanaal waar je dit commando typt",
     )
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.guild_only()

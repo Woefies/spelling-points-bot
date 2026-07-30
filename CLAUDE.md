@@ -56,9 +56,17 @@ Three swap points, each backed by an interface/registry. Adding a feature = drop
 
 ## Reminders (`cogs/reminders.py` + `repositories/reminders_repo.py`)
 
-Slash-only group `/reminder setup|preset|add|list|remove`, gated behind `default_permissions=manage_guild` (users without *Manage Server* don't see the command at all). A `tasks.loop(seconds=30)` compares `datetime.now(ZoneInfo("Europe/Amsterdam"))` formatted as `HH:MM` against each stored reminder; a `last_fired` date column guards against double sends. Frequencies: `daily` / `weekdays` (Mon-Fri) / `weekly` (weekday 0-6) / `monthly` (day clamped to month length) / `once` (deleted after firing).
+Slash-only group `/reminder setup|preset|add|edit|list|remove`, gated behind `default_permissions=manage_guild` (users without *Manage Server* don't see the command at all). A `tasks.loop(seconds=30)` compares `datetime.now(ZoneInfo("Europe/Amsterdam"))` formatted as `HH:MM` against each stored reminder. Frequencies: `daily` / `weekdays` (Mon-Fri) / `weekly` (weekday 0-6) / `monthly` (day clamped to month length) / `once` (deleted after firing).
 
-`PK_PRESET` holds the fixed company set seeded by `/reminder preset`. A reminder that needs to fire several times a day is stored as several rows — there is no interval frequency.
+**One reminder can hold several times of day**, stored comma-separated in the existing `time` column (`"09:00,11:00,13:00"`) and parsed by `_parse_times`, which normalises, sorts and dedupes. This is why `last_fired` stores `"YYYY-MM-DD HH:MM"` rather than a bare date: the guard has to allow a second firing later the same day while still blocking the 30s loop from double-sending inside one minute. Rows written before this change hold a bare date, which simply never matches — costing exactly one extra send on the day of the upgrade, deemed cheaper than a migration.
+
+`/reminder edit` patches only `message`, `time`, `channel_id` and `mention`. Frequency, day and date are intentionally not editable: validating those combinations lives in `add_cmd`, and duplicating it in an edit path invites the two drifting apart.
+
+`PK_PRESET` holds the fixed company set seeded by `/reminder preset` — four rows, since the five daily hour-check slots collapsed into one multi-time row.
+
+## Command help text
+
+`description=` on a command and each `app_commands.describe` string are what Discord shows while someone is typing, and **Discord caps both at 100 characters** — the API rejects the whole sync if any is longer, which takes down every command, not just the offending one. Write them as a hint with a concrete example (`"Tijd als HH:MM. Meerdere momenten per dag met kommas: 09:00, 13:00, 17:00"`), and keep them in Dutch: the entire user-facing surface is Dutch, while the code and these notes are English.
 
 - **`TZ = ZoneInfo("Europe/Amsterdam")` runs at module import.** `tzdata` is not in `requirements.txt`, so this depends entirely on the OS tz database being present in the image. If it isn't, the cog fails to import — since fault isolation landed this only costs you the reminders cog rather than the whole bot, and the startup log names it. Add `tzdata` to requirements if that shows up.
 - Because the cog pins the timezone explicitly, the container's `TZ` env is irrelevant. Don't "fix" reminders by setting `TZ` in `docker-compose.yml`.
@@ -72,6 +80,16 @@ Slash-only group `/reminder setup|preset|add|list|remove`, gated behind `default
 `cogs/daily_summary.py` posts the day's leaderboard on weekdays at a configurable time (`/dagoverzicht aan|uit|nu`), reading `issues_log` because `scores` only holds running totals. **Timezone trap:** `issues_log.ts` is SQLite's `CURRENT_TIMESTAMP` (UTC) while the reporting day is Amsterdam local, so it queries a UTC *range* built by `_utc_window_for_local_day`, never `DATE(ts)`. A plain date match silently files everything logged between local midnight and 01:00/02:00 into the previous day.
 
 `services/variants.py` is shared by both: `pick_variant` picks one of several `|`-separated phrasings per firing (so recurring output does not go stale), and `compile_phrases` builds the matching regex. Reminders and triggers both store variants in a single text column.
+
+## Backups
+
+`data/` is a mounted volume, so configuration already survives a rebuild — the gap backups close is the database file itself being lost or corrupted. `cogs/backup.py` writes a JSON snapshot of `reminders`, `triggers`, `whitelist`, `guild_config` and `scores` at 04:00 daily into `data/backups/` (gitignored), keeping the newest 14. `issues_log` is excluded on purpose: append-only audit data, unbounded, pointless to restore.
+
+`services/backup.py` holds the logic and talks to SQLite directly rather than through a repository, so `scripts/export_config.py` and `scripts/import_config.py` can reuse it without importing discord.py. Writes go to a `.tmp` file and are then `replace()`d into position, so a crash mid-write cannot leave a truncated file that looks valid. Missing tables are skipped rather than raising — `reminders` only exists once that cog has run.
+
+Restore is destructive by design (wipe the table, reinsert): a merge would leave old and restored rows indistinguishable. `import_config.py` is therefore a dry run unless `--replace` is passed.
+
+The backup cog pins a fixed UTC+1 offset instead of `ZoneInfo`, so it does not inherit the tzdata dependency that can stop the reminders cog from loading. It drifts to 05:00 local in summer, which is fine for a nightly job.
 
 ## Data model (SQLite, `data/points.db`)
 

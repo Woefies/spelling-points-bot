@@ -67,12 +67,12 @@ class TriggersCog(commands.Cog):
 
     trigger = app_commands.Group(
         name="trigger",
-        description="Beheer woorden waar de bot op reageert",
+        description="Beheer woorden waar de bot automatisch op reageert met tekst of emoji",
         default_permissions=discord.Permissions(manage_guild=True),
         guild_only=True,
     )
 
-    @trigger.command(name="preset", description="Zet de vaste PK-triggers klaar (thuiswerken, schelden)")
+    @trigger.command(name="preset", description="Zet de vaste PK-triggers aan: thuiswerken en schelden")
     async def preset_cmd(self, interaction: discord.Interaction) -> None:
         created = 0
         for pattern, response, reactions in PK_TRIGGERS:
@@ -86,13 +86,13 @@ class TriggersCog(commands.Cog):
                 "ℹ️ De PK-triggers staan er al. Bekijk ze met `/trigger list`.", ephemeral=True
             )
             return
-        await interaction.response.send_message(f"✅ {created} trigger(s) aangemaakt.")
+        await interaction.response.send_message(f"✅ {created} trigger(s) aangemaakt.", ephemeral=True)
 
-    @trigger.command(name="add", description="Voeg een eigen trigger toe")
+    @trigger.command(name="add", description="Laat de bot op een woord reageren met een tekst, emoji of allebei")
     @app_commands.describe(
-        woorden="Waar de bot op let. Meerdere schrijfwijzen scheiden met | ",
-        antwoord="Wat de bot terugzegt. Varianten scheiden met | (leeg = niets zeggen)",
-        reacties="Emoji om onder het bericht te zetten, gescheiden door komma's",
+        woorden="Waar de bot op let. Meerdere schrijfwijzen met |: thuiswerken|thuis werken",
+        antwoord="Wat de bot terugzegt. Varianten met | zodat hij afwisselt. Leeg = niets zeggen",
+        reacties="Emoji onder het bericht, gescheiden door kommas. Bijvoorbeeld: 👎,❌",
     )
     async def add_cmd(
         self,
@@ -110,15 +110,17 @@ class TriggersCog(commands.Cog):
 
         trigger_id = self.bot.repo.add_trigger(interaction.guild_id, woorden, antwoord, reacties)
         await interaction.response.send_message(
-            f"✅ Trigger **#{trigger_id}** aangemaakt op: `{woorden}`"
+            f"✅ Trigger **#{trigger_id}** aangemaakt op: `{woorden}`",
+            ephemeral=True,
         )
 
-    @trigger.command(name="list", description="Toon alle triggers van deze server")
+    @trigger.command(name="list", description="Toon alle triggers met hun ID, woorden en reacties")
     async def list_cmd(self, interaction: discord.Interaction) -> None:
         rows = self.bot.repo.list_triggers(interaction.guild_id)
         if not rows:
             await interaction.response.send_message(
-                "Er zijn nog geen triggers. Gebruik `/trigger preset` of `/trigger add`."
+                "Er zijn nog geen triggers. Gebruik `/trigger preset` of `/trigger add`.",
+                ephemeral=True,
             )
             return
 
@@ -133,13 +135,13 @@ class TriggersCog(commands.Cog):
                 parts.append(f"{count} antwoordvariant(en)")
             lines.append(" · ".join(parts))
         embed.description = "\n".join(lines)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @trigger.command(name="remove", description="Verwijder een trigger op ID")
-    @app_commands.describe(id="Het ID uit /trigger list")
+    @trigger.command(name="remove", description="Verwijder een trigger aan de hand van het ID uit /trigger list")
+    @app_commands.describe(id="Het nummer uit /trigger list, bijv. 3")
     async def remove_cmd(self, interaction: discord.Interaction, id: int) -> None:
         if self.bot.repo.remove_trigger(interaction.guild_id, id):
-            await interaction.response.send_message(f"🗑️ Trigger **#{id}** verwijderd.")
+            await interaction.response.send_message(f"🗑️ Trigger **#{id}** verwijderd.", ephemeral=True)
         else:
             await interaction.response.send_message(
                 f"🚫 Geen trigger gevonden met ID **{id}**.", ephemeral=True

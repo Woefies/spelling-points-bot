@@ -1,6 +1,7 @@
 """Score-reporting cog: user score lookup and guild leaderboard."""
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 
@@ -8,7 +9,8 @@ class ScoresCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @commands.hybrid_command(name="score", description="Show a user's spelling-mistake tally")
+    @commands.hybrid_command(name="score", description="Toon hoeveel strafpunten iemand heeft verzameld. Standaard jezelf")
+    @app_commands.describe(member="Van wie je de stand wilt zien. Leeg laten voor je eigen punten")
     async def score(self, ctx: commands.Context, member: discord.Member = None) -> None:
         if ctx.guild is None:
             await ctx.reply("Guild only.")
@@ -18,7 +20,7 @@ class ScoresCog(commands.Cog):
         pts = self.bot.repo.get_score(ctx.guild.id, member.id)
         await ctx.reply(f"📊 {member.display_name} has **{pts}** mistake point(s).", mention_author=False)
 
-    @commands.hybrid_command(name="leaderboard", description="Top spelling offenders")
+    @commands.hybrid_command(name="leaderboard", description="De ranglijst van de meeste spelfouten, top 10 aller tijden")
     async def leaderboard(self, ctx: commands.Context) -> None:
         if ctx.guild is None:
             await ctx.reply("Guild only.")
