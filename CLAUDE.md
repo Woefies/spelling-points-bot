@@ -84,7 +84,7 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 
 `/trigger edit` differs from `/reminder edit` on purpose: it takes a `changes` dict rather than keyword arguments, because a trigger legitimately needs a field *cleared*. A lone `-` empties `response` or `reactions`, which the reminder version has no equivalent of — "not given" and "make empty" have to be distinguishable. It refuses an edit that would leave a trigger with neither a reply nor reactions, since that is a row that does nothing. Patterns are matched with `services/variants.compile_phrases`, which wraps `\b…\b` word boundaries around each phrase — that is what keeps the profanity trigger off `kankeren` and `borstkanker`. It cannot keep it off a genuine medical mention, which is a known and accepted limitation. At most one reply fires per message however many triggers match.
 
-`cogs/daily_summary.py` posts the day's leaderboard on weekdays at a configurable time (`/dagoverzicht aan|uit|nu`), reading `issues_log` because `scores` only holds running totals. **Timezone trap:** `issues_log.ts` is SQLite's `CURRENT_TIMESTAMP` (UTC) while the reporting day is Amsterdam local, so it queries a UTC *range* built by `_utc_window_for_local_day`, never `DATE(ts)`. A plain date match silently files everything logged between local midnight and 01:00/02:00 into the previous day.
+`cogs/daily_summary.py` posts the day's leaderboard on weekdays at a configurable time (`/dagoverzicht aan|uit|list`), reading `issues_log` because `scores` only holds running totals. **Timezone trap:** `issues_log.ts` is SQLite's `CURRENT_TIMESTAMP` (UTC) while the reporting day is Amsterdam local, so it queries a UTC *range* built by `_utc_window_for_local_day`, never `DATE(ts)`. A plain date match silently files everything logged between local midnight and 01:00/02:00 into the previous day.
 
 `services/variants.py` is shared by both: `pick_variant` picks one of several `|`-separated phrasings per firing (so recurring output does not go stale), and `compile_phrases` builds the matching regex. Reminders and triggers both store variants in a single text column.
 
@@ -93,6 +93,20 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 `/reset` wipes one category (`reminders`, `triggers`, `whitelist`, `scores`, `guild_config`, or all of them) for the calling guild. It **always writes a backup snapshot first and aborts if that fails** — the snapshot is the only way back, so taking it afterwards would be pointless. It also requires an explicit `bevestig: True`; a destructive command that fires on a single click is a footgun.
 
 `SqliteScoreRepository.clear()` maps a caller-supplied key through `_CLEARABLE` before it reaches the SQL string, so a table name is never interpolated unchecked, and it returns 0 for a table that does not exist yet rather than raising. It clears `reminders` too, even though `SqliteReminderRepository` owns that table — running one DELETE is not worth a third connection to the same file.
+
+## Punishment (`cogs/punishment.py` + `services/punishment.py`)
+
+Times a member out once their mistakes *for the local day* cross a multiple of a configurable threshold (default 20). Ladder is 1/2/5/10/20/30 minutes, and the last rung repeats rather than escalating, so a bad day cannot end in an hour of silence.
+
+**Three modes, off by default.** `warn` announces who *would* have been muted without touching anyone, and exists because this is the only feature that can stop a colleague from talking — the bot still has false positives on names and jargon. Run `warn` before `mute`.
+
+`services/punishment.py` holds the arithmetic and imports no discord.py, so the escalation is testable on its own. `crossed()` compares tiers rather than testing for an exact multiple: one message can carry several mistakes and jump 18 → 21 straight past a boundary.
+
+The spelling cog stays unaware of any of this — it fires `bot.dispatch("mistakes_recorded", message, points)` and the punishment cog listens. Timeouts need **Moderate Members** and the bot's role above the target's; Discord refuses to time out admins and the owner at all, which is reported in-channel rather than swallowed.
+
+## Rate limiting
+
+`RateLimitedTree` in `core/bot.py` puts one shared cooldown (5 uses / 15 s / user) in front of every slash command via `interaction_check`, rather than a decorator per command that a new cog could forget. It lets non-application-command interactions through untouched — autocomplete fires on every keystroke and must never be throttled.
 
 ## Backups
 

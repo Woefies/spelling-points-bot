@@ -36,10 +36,13 @@ Vereist *Manage Server*. Zonder die rechten zijn deze commando's niet eens zicht
 | `/reminder edit <id>` | Tekst, tijd, kanaal of mention aanpassen |
 | `/trigger add\|list\|remove` | Eigen trefwoorden beheren |
 | `/trigger edit <id>` | Woorden, antwoord of reacties aanpassen |
-| `/dagoverzicht aan\|uit\|nu` | Het dagelijkse overzicht regelen |
+| `/dagoverzicht aan\|uit\|list` | Het dagelijkse overzicht regelen |
 | `/backup nu` | Nu een back-up van de configuratie maken |
-| `/backup lijst` | Bestaande back-ups tonen |
+| `/backup list` | Bestaande back-ups tonen |
 | `/reset` | Herinneringen, triggers, whitelist of punten wissen |
+| `/straf modus` | Straffen uit, waarschuwen, of echt dempen |
+| `/straf drempel` | Na hoeveel fouten per dag de eerste mute volgt |
+| `/straf status` | Huidige instelling en de hele mute-ladder |
 
 Bij `/reminder add` en `/trigger add` kun je meerdere teksten scheiden met een
 `|`. De bot kiest er elke keer willekeurig één, zodat een dagelijks bericht niet
@@ -54,6 +57,21 @@ vraagt om een expliciete bevestiging.
 Moet een herinnering meerdere keren per dag afgaan, vul dan meerdere tijden in
 gescheiden door komma's: `09:00, 11:00, 13:00, 15:00, 17:00`. Dat is één
 herinnering met één ID, dus je past de tekst ook maar op één plek aan.
+
+## Mutes
+
+Maak je te veel fouten op één dag, dan kan de bot je tijdelijk het zwijgen
+opleggen. Dat begint bij 1 minuut en loopt op tot maximaal 30. Elke dag begint
+de teller opnieuw.
+
+Dit staat standaard **uit**, en gaat eerst in waarschuwingsmodus draaien: de bot
+zegt dan wel wie er gemute zóu worden, maar dempt niemand. Beheerders regelen
+dat met `/straf modus`.
+
+## Rustig aan met commando's
+
+Meer dan 5 commando's binnen 15 seconden en de bot vraagt je even te wachten.
+Dat merk je bij normaal gebruik niet.
 
 ## Onterecht een punt gekregen?
 

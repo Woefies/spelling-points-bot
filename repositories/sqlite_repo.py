@@ -165,6 +165,32 @@ class SqliteScoreRepository(ScoreRepository):
             rows = cur.fetchall()
         return [(row[0], row[1]) for row in rows]
 
+    def count_between(self, guild_id: int, user_id: int, start_utc: str, end_utc: str) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT COUNT(*) FROM issues_log "
+                "WHERE guild_id = ? AND user_id = ? AND ts >= ? AND ts < ?",
+                (guild_id, user_id, start_utc, end_utc),
+            )
+            row = cur.fetchone()
+        return row[0] if row else 0
+
+    def words_between(
+        self, guild_id: int, start_utc: str, end_utc: str
+    ) -> list[tuple[int, str, int]]:
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT user_id, word, COUNT(*) AS n FROM issues_log
+                WHERE guild_id = ? AND ts >= ? AND ts < ?
+                GROUP BY user_id, word
+                ORDER BY n DESC, word ASC
+                """,
+                (guild_id, start_utc, end_utc),
+            )
+            rows = cur.fetchall()
+        return [(r[0], r[1], r[2]) for r in rows]
+
     def set_config(self, guild_id: int, key: str, value: str | None) -> None:
         with self._lock:
             if value is None:

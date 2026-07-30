@@ -50,6 +50,10 @@ class SpellingCog(commands.Cog):
         for iss in all_issues:
             self.bot.repo.log_issue(message.guild.id, message.author.id, iss.word, iss.lang, iss.kind)
 
+        # Decoupled on purpose: the punishment cog listens for this rather than
+        # the spelling flow knowing anything about timeouts.
+        self.bot.dispatch("mistakes_recorded", message, points)
+
         try:
             await message.add_reaction("❌")
         except discord.HTTPException:

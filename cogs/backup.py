@@ -76,7 +76,7 @@ class BackupCog(commands.Cog):
             f"✅ Back-up gemaakt: `{path.name}`\n{summary}", ephemeral=True
         )
 
-    @backup.command(name="lijst", description="Toon welke back-ups er zijn, hoe recent en hoe groot")
+    @backup.command(name="list", description="Toon welke back-ups er zijn, hoe recent en hoe groot")
     async def list_cmd(self, interaction: discord.Interaction) -> None:
         dest = backup_dir_for(self.bot.settings.db_path)
         snapshots = sorted(dest.glob("config-backup-*.json"), reverse=True)

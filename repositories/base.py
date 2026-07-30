@@ -91,6 +91,18 @@ class ScoreRepository(ABC):
         ...
 
     @abstractmethod
+    def count_between(self, guild_id: int, user_id: int, start_utc: str, end_utc: str) -> int:
+        """How many issues this one user collected in a UTC window."""
+        ...
+
+    @abstractmethod
+    def words_between(
+        self, guild_id: int, start_utc: str, end_utc: str
+    ) -> list[tuple[int, str, int]]:
+        """(user_id, word, times) within a UTC window, most-flagged first."""
+        ...
+
+    @abstractmethod
     def set_config(self, guild_id: int, key: str, value: str | None) -> None:
         """Store a per-guild setting; None deletes it."""
         ...

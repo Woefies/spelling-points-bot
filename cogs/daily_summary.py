@@ -19,6 +19,7 @@ CONFIG_CHANNEL = "daily_summary_channel"
 CONFIG_TIME = "daily_summary_time"
 DEFAULT_TIME = "16:30"
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+WORDS_PER_USER = 8  # keeps the embed inside Discord's 4096-character description
 
 
 def _utc_window_for_local_day(now: datetime) -> tuple[str, str]:
@@ -88,12 +89,24 @@ class DailySummaryCog(commands.Cog):
             embed.description = "Geen enkele fout vandaag. Verdacht. 🎉"
             return embed
 
+        # Which words, not just how many — that is what makes the summary useful
+        # for spotting a false positive worth whitelisting.
+        by_user: dict[int, list[str]] = {}
+        for user_id, word, times in self.bot.repo.words_between(guild_id, start_utc, end_utc):
+            by_user.setdefault(user_id, []).append(f"{word}×{times}" if times > 1 else word)
+
         guild = self.bot.get_guild(guild_id)
         lines = []
         for rank, (user_id, count) in enumerate(rows, start=1):
             member = guild.get_member(user_id) if guild else None
             name = member.display_name if member else f"Gebruiker {user_id}"
             lines.append(f"{MEDALS.get(rank, f'{rank}.')} **{name}** — {count}")
+
+            words = by_user.get(user_id, [])
+            if words:
+                shown = ", ".join(words[:WORDS_PER_USER])
+                rest = len(words) - WORDS_PER_USER
+                lines.append(f"　`{shown}`" + (f" _+{rest}_" if rest > 0 else ""))
 
         embed.description = "\n".join(lines)
         embed.set_footer(text=f"{sum(c for _, c in rows)} fouten vandaag")
@@ -142,8 +155,8 @@ class DailySummaryCog(commands.Cog):
         self.bot.repo.set_config(interaction.guild_id, CONFIG_TIME, None)
         await interaction.response.send_message("🛑 Dagoverzicht staat uit.", ephemeral=True)
 
-    @dagoverzicht.command(name="nu", description="Toon nu het overzicht van vandaag, zonder te wachten tot het eind van de dag")
-    async def now_cmd(self, interaction: discord.Interaction) -> None:
+    @dagoverzicht.command(name="list", description="Toon het overzicht van vandaag, zonder te wachten tot het eind van de dag")
+    async def list_cmd(self, interaction: discord.Interaction) -> None:
         embed = self._build_embed(interaction.guild_id, datetime.now(TZ))
         await interaction.response.send_message(embed=embed)
 
