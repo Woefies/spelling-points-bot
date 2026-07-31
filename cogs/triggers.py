@@ -15,12 +15,13 @@ from discord import app_commands
 from discord.ext import commands
 
 from services.punishment import format_minutes, render
-from services.variants import compile_phrases, pick_variant
+from services.variants import compile_phrases, pick_variant, split_variants
 
 log = logging.getLogger(__name__)
 
 CLEAR = "-"  # sentinel in /trigger edit meaning "empty this field"
 FALLBACK_RESPONSE = "{user} — let op je woorden."
+MAX_LENGTH = 2000  # Discord's per-message limit, applied per | variant
 
 class TriggersCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -123,6 +124,16 @@ class TriggersCog(commands.Cog):
             )
             return
 
+        too_long = _oversized(response)
+        if too_long:
+            await interaction.response.send_message(
+                f"🚫 Variant {too_long[0]} is **{too_long[1]}** tekens. Discord staat er "
+                f"{MAX_LENGTH} toe per bericht, dus die zou nooit verstuurd worden.\n"
+                "_Knip hem korter, of splits met een `|` in meerdere varianten._",
+                ephemeral=True,
+            )
+            return
+
         if self.bot.repo.trigger_exists(interaction.guild_id, words):
             await interaction.response.send_message(
                 f"🚫 Er bestaat al een trigger op `{words}`. Bekijk ze met `/trigger list`.",
@@ -181,6 +192,15 @@ class TriggersCog(commands.Cog):
         if not changes:
             await interaction.response.send_message(
                 "🚫 Vul minstens één veld in dat je wilt wijzigen.", ephemeral=True
+            )
+            return
+
+        too_long = _oversized(changes.get("response"))
+        if too_long:
+            await interaction.response.send_message(
+                f"🚫 Variant {too_long[0]} is **{too_long[1]}** tekens, en Discord staat "
+                f"er {MAX_LENGTH} toe per bericht.",
+                ephemeral=True,
             )
             return
 
@@ -250,6 +270,21 @@ class TriggersCog(commands.Cog):
             await interaction.response.send_message(
                 f"🚫 Geen trigger gevonden met ID **{id}**.", ephemeral=True
             )
+
+
+def _oversized(response: str | None) -> tuple[int, int] | None:
+    """First variant that could never be sent, as (position, length).
+
+    Checked when the trigger is written rather than when it fires: a send that
+    fails at fire time is swallowed and logged, so the trigger would look broken
+    for no visible reason.
+    """
+    if not response:
+        return None
+    for index, variant in enumerate(split_variants(response), start=1):
+        if len(variant) > MAX_LENGTH:
+            return index, len(variant)
+    return None
 
 
 def _punish_note(bot, guild_id: int) -> str:
