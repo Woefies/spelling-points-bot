@@ -116,6 +116,12 @@ A trigger carrying `punish_minutes` dispatches `trigger_punishment` to the same 
 
 `RateLimitedTree` in `core/bot.py` puts one shared cooldown (5 uses / 15 s / user) in front of every slash command via `interaction_check`, rather than a decorator per command that a new cog could forget. It lets non-application-command interactions through untouched — autocomplete fires on every keystroke and must never be throttled.
 
+## Command errors
+
+The same tree overrides `on_error`, so a command that raises says so in Discord instead of letting the interaction time out. Without it every failure looks identical from the outside — "the application did not respond" is what you see whether the bot crashed, lacks a permission, or does not have the command at all.
+
+Four branches, and the first is the one that keeps coming up: `CommandNotFound` means Discord remembered a command from a sync the running build no longer backs, which is almost always a deploy that did not happen — so it says that, with the running version. `CheckFailure` returns silently when the interaction was already answered, because the rate limiter explains its own refusals. `discord.Forbidden` points at bot permissions. Anything else shows the exception type and message, truncated, with the full traceback in the log.
+
 ## Self-service diagnostics
 
 `cogs/insights.py` (`/flagged`, `/status`), plus `/backup download` and `/whitelist export`, exist so nothing routine needs a shell on the host. The person with SSH access is one holiday away from being a single point of failure, and the flagged-words report in particular was needed twice in the first week.

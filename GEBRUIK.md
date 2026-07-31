@@ -95,6 +95,13 @@ De teksten mogen `{user}`, `{count}` en `{minutes}` bevatten. Bijvoorbeeld:
 Meer dan 5 commando's binnen 15 seconden en de bot vraagt je even te wachten.
 Dat merk je bij normaal gebruik niet.
 
+## Gaat er iets mis met een commando?
+
+De bot zegt zelf wat er aan de hand is — of hij het commando niet kent, of je
+de rechten mist, of er iets stuk is. Krijg je alsnog Discord's eigen melding
+"de applicatie heeft niet gereageerd", dan draait de bot niet of is hij
+onbereikbaar.
+
 ## Onterecht een punt gekregen?
 
 Dat kan, en het ligt niet aan jou. De bot rekent samengestelde woorden als

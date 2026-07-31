@@ -49,6 +49,58 @@ class RateLimitedTree(app_commands.CommandTree):
         recent.append(now)
         return True
 
+    async def on_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        """Say what went wrong instead of letting Discord time the interaction out.
+
+        Without this, anything raised inside a command is logged server-side and
+        the person sees only "the application did not respond" — which looks
+        identical whether the bot crashed, lacks a permission, or does not have
+        the command at all.
+        """
+        original = getattr(error, "original", error)
+
+        if isinstance(error, app_commands.CommandNotFound):
+            # Discord remembered a command from a sync the running build no
+            # longer backs. Almost always a deploy that did not happen.
+            text = (
+                f"🚫 Dit commando kent deze bot niet. Discord onthield het van een "
+                f"eerdere versie; hier draait **v{self.client.settings.version}**.\n"
+                "_Waarschijnlijk moet de bot opnieuw gebouwd worden._"
+            )
+        elif isinstance(error, app_commands.CheckFailure):
+            # The rate limiter already replied for its own refusals.
+            if interaction.response.is_done():
+                return
+            text = "🚫 Je hebt niet de rechten om dit commando te gebruiken."
+        elif isinstance(original, discord.Forbidden):
+            text = (
+                "🚫 De bot mist een recht dat hiervoor nodig is. Controleer zijn "
+                "kanaalrechten, en bij dempen ook *Moderate Members* en de rolvolgorde."
+            )
+        else:
+            detail = f"{type(original).__name__}: {original}"
+            text = (
+                f"⚠️ Er ging iets mis bij dit commando.\n```{detail[:400]}```"
+                "_De volledige fout staat in de logs van de bot._"
+            )
+
+        log.exception(
+            "Command %s failed for %s",
+            getattr(interaction.command, "qualified_name", "?"),
+            interaction.user,
+            exc_info=error,
+        )
+
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(text, ephemeral=True)
+            else:
+                await interaction.response.send_message(text, ephemeral=True)
+        except discord.HTTPException:
+            log.warning("Could not report the error back to the user")
+
 
 class SpellBot(commands.Bot):
     def __init__(self, settings: Settings) -> None:
