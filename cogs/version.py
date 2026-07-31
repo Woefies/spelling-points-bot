@@ -177,10 +177,25 @@ class VersionCog(commands.Cog):
         running = self.bot.settings.version
 
         if path.exists():
+            # A request that just sits there almost always means the scheduled
+            # task was never set up — say that rather than "wait for the next
+            # round", which implies a round is coming.
+            try:
+                age = discord.utils.utcnow().timestamp() - path.stat().st_mtime
+            except OSError:
+                age = 0
+            hours = age / 3600
+
+            if hours < 24:
+                extra = "De taakplanner pakt het op bij de volgende ronde."
+            else:
+                extra = (
+                    f"Het staat er al **{hours / 24:.0f} dag(en)** — dat wijst erop dat de "
+                    "updatetaak niet is ingesteld op de host. Dan gebeurt er niets tot "
+                    "iemand `scripts/auto_update.sh` draait."
+                )
             await interaction.response.send_message(
-                "ℹ️ Er staat al een verzoek klaar. De taakplanner pakt het op bij de "
-                "volgende ronde.",
-                ephemeral=True,
+                f"ℹ️ Er staat al een verzoek klaar. {extra}", ephemeral=True
             )
             return
 
@@ -209,6 +224,18 @@ class VersionCog(commands.Cog):
             "_Werkt alleen als `scripts/auto_update.sh` als taak is ingesteld._",
             ephemeral=True,
         )
+
+    @update.command(name="cancel", description="Trek een openstaand updateverzoek weer in")
+    async def cancel_cmd(self, interaction: discord.Interaction) -> None:
+        path = Path(self.bot.settings.db_path).parent / REQUEST_FILE
+        if not path.exists():
+            await interaction.response.send_message(
+                "ℹ️ Er stond geen verzoek open.", ephemeral=True
+            )
+            return
+        path.unlink(missing_ok=True)
+        log.info("%s cancelled the pending update request", interaction.user)
+        await interaction.response.send_message("🗑️ Verzoek ingetrokken.", ephemeral=True)
 
     @update.command(name="disable", description="Zet de updatemeldingen uit")
     async def disable_cmd(self, interaction: discord.Interaction) -> None:
