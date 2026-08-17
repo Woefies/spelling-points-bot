@@ -13,7 +13,7 @@ collega. Python 3.12, discord.py, SQLite.
 
 - **Repo:** `Woefies/spelling-points-bot`, default branch `master`
 - **Server-ID (guild):** `1518714200342659245`
-- **Container op de NAS:** `discord_bot-spellbot-1` (let op: níet `spellbot`)
+- **Container op de NAS:** `spellbot` (compose zet `container_name` expliciet)
 - **Projectmap op de NAS:** `/volume1/docker/discord-bot`
 - **Docker vereist `sudo`** op die machine
 
@@ -48,7 +48,7 @@ De collega moet dus: `git pull` + `sudo docker compose up -d --build`. Die eerst
 build duurt langer dan normaal omdat er Hunspell-woordenboeken bij komen.
 
 Controleren of het gelukt is: `/version` in Discord, of
-`sudo docker exec discord_bot-spellbot-1 cat /app/VERSION`.
+`sudo docker exec spellbot cat /app/VERSION`.
 
 ---
 
@@ -254,14 +254,14 @@ Ontbrekend om verder te kunnen: voorbeelden van hoe ze schrijft.
 
 ```bash
 # Op de NAS (alles met sudo)
-sudo docker exec discord_bot-spellbot-1 cat /app/VERSION
-sudo docker exec discord_bot-spellbot-1 ls /app/cogs/
+sudo docker exec spellbot cat /app/VERSION
+sudo docker exec spellbot ls /app/cogs/
 sudo docker compose logs --tail 80 spellbot
-sudo docker exec discord_bot-spellbot-1 python scripts/report_flagged.py --kind repeat
-sudo docker exec discord_bot-spellbot-1 python scripts/export_config.py
+sudo docker exec spellbot python scripts/report_flagged.py --kind repeat
+sudo docker exec spellbot python scripts/export_config.py
 
 # Whitelist uitlezen zonder nieuwe code
-sudo docker exec discord_bot-spellbot-1 python -c "
+sudo docker exec spellbot python -c "
 import sqlite3
 for (w,) in sqlite3.connect('data/points.db').execute('SELECT word FROM whitelist ORDER BY word'): print(w)
 "

@@ -109,6 +109,7 @@ class TriggersCog(commands.Cog):
         words="Waar de bot op let. Meerdere schrijfwijzen met |: thuiswerken|thuis werken",
         response="Wat de bot terugzegt. Varianten met | zodat hij afwisselt. Leeg = niets zeggen",
         reactions="Emoji onder het bericht, gescheiden door kommas. Bijvoorbeeld: 👎,❌",
+        minutes="Timeout in minuten bij dit woord. Leeg laten voor geen straf",
     )
     async def add_cmd(
         self,
@@ -116,10 +117,12 @@ class TriggersCog(commands.Cog):
         words: str,
         response: str | None = None,
         reactions: str | None = None,
+        minutes: app_commands.Range[int, 1, 1440] | None = None,
     ) -> None:
-        if not response and not reactions:
+        if not response and not reactions and not minutes:
             await interaction.response.send_message(
-                "🚫 Vul minstens `antwoord` of `reacties` in, anders doet de trigger niets.",
+                "🚫 Vul minstens `response`, `reactions` of `minutes` in, "
+                "anders doet de trigger niets.",
                 ephemeral=True,
             )
             return
