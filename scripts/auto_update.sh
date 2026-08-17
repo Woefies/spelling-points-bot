@@ -33,9 +33,20 @@ for tool in git curl; do
     }
 done
 
+# Git refuses to operate on a repo owned by a different user unless that user
+# has explicitly trusted it (CVE-2022-24765 mitigation). Task Scheduler often
+# runs this as root, while the repo was cloned as another user over SSH —
+# without this, every git command below fails with "dubious ownership".
+if ! git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$(pwd)"; then
+    git config --global --add safe.directory "$(pwd)"
+fi
+
 REPO="${GITHUB_REPO:-Woefies/spelling-points-bot}"
 BRANCH="${GITHUB_BRANCH:-master}"
-CONTAINER="${SPELLBOT_CONTAINER:-discord_bot-spellbot-1}"
+# docker-compose.yml sets `container_name: spellbot` explicitly, so compose
+# does NOT use the usual <project>-<service>-<index> naming here — the real
+# container is just "spellbot".
+CONTAINER="${SPELLBOT_CONTAINER:-spellbot}"
 COMPOSE="${DOCKER_COMPOSE:-docker compose}"
 SETTLE_SECONDS="${SETTLE_SECONDS:-25}"
 REQUEST_FILE="${REQUEST_FILE:-data/.update-requested}"
