@@ -97,7 +97,7 @@ class SpellingCog(commands.Cog):
         if conf["reply_on_mistake"]:
             total = self.bot.repo.get_score(message.guild.id, message.author.id)
             await message.reply(
-                f"🔤 {len(all_issues)} mistake(s) [{lang}]: {words} · +{points} pts (total {total})",
+                f"🔤 {len(all_issues)} fout(en) [{lang}]: {words} · +{points} punt(en) (totaal {total})",
                 mention_author=False,
             )
 
