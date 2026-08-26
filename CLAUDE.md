@@ -112,6 +112,43 @@ A trigger carrying `punish_minutes` dispatches `trigger_punishment` to the same 
 
 `trigger_hits` records who set off which trigger, feeding `{count}` in trigger responses. It is a separate table rather than a `kind` in `issues_log` on purpose — the daily summary, `/flagged` and the punishment counter all read that log, and trigger hits are not spelling mistakes. Timeouts need **Moderate Members** and the bot's role above the target's; Discord refuses to time out admins and the owner at all, which is reported in-channel rather than swallowed.
 
+## Trigger evasion (`services/evasion.py`)
+
+`compile_phrases` matches on exact word boundaries, which is what keeps a trigger off
+`kankeren` and `borstkanker`. The price is that one changed character dodges it, so
+there are two tiers, and they are separate because they fail differently.
+
+**Tier 1, `obfuscations()` — deterministic, offline, free.** Digits standing in for
+letters, repeated letters, separators pushed between them: `br3nt`, `brenttt`,
+`b r e n t`, `b-r-e-n-t`. After `normalize()` these are *identical* to the trigger, so
+no judgement is involved. Behind `/trigger obfuscation`, and it works with AI off.
+
+Two guards make that tier safe, and both were bugs before they were guards:
+
+- `normalize()` collapses runs of a letter, symmetrically on both sides — which on its
+  own makes `kr` indistinguishable from the trigger `kkr`. So a word is only accepted
+  when its `core()` (letters, leet-mapped, runs **kept**) is at least as long as the
+  trigger's: a dodge dresses a word up, it never shortens it.
+- `spaced_pattern()` is built from the phrase's own letters, not its normalised form.
+  Built from the normalised form, `kkr` degrades to `k?r` and fires on any stray "kr".
+
+**Tier 2, `near_misses()` — candidates only, never a verdict.** A different word built
+around the trigger (`brentify`, `brentje`, `superbrent`) or one edit away (`brant`).
+Whether that is a dodge depends on what the trigger means, so a model decides — see
+below. Short cores are excluded (`MIN_CORE_LENGTH`), because a two-letter core sits
+inside far too many ordinary words to be worth asking about.
+
+`cogs/triggers.py:_dodge()` runs them cheapest-first and the paid tier only ever sees
+words that tier 1 could not settle, that the dictionaries do not recognise
+(`SpellingChecker.knows()`, public for exactly this), and that nobody whitelisted — a
+word an admin has whitelisted must be fine for every checker. `MAX_CANDIDATES` caps how
+many words one message can send to the model.
+
+A dodge is a normal trigger hit from there on: it logs, it replies, and it dispatches
+`trigger_punishment` through the punishment cog, so **`/punish mode` still governs
+every timeout**. The reply names the word it read as a dodge — someone muted for a word
+they did not literally type has to be able to see what was read into it.
+
 ## AI-generated trigger replies (`cogs/ai.py` + `services/ai.py`)
 
 Off by default, per guild, and only for triggers. When on, `cogs/triggers.py` asks
@@ -149,13 +186,35 @@ holding no text in the code. `GUARDRAILS` is appended to whatever the admin wrot
 (Dutch, max two sentences, no invented facts), so the guards do not depend on the
 persona author remembering them.
 
-`/ai test` deliberately bypasses the enabled check — the persona has to be tunable
+**Two features, two switches** (`ai_replies`, `ai_evasion`), not one master flag.
+Writing a joke and deciding that someone dodged a filter are different powers, and a
+guild that wants the first must not silently get the second. `/ai off` clears both.
+
+`AICog.evasion_for()` returns **False on every uncertain path** — feature off, no key,
+budget spent, call failed, answer unreadable. `parse_verdict()` accepts only `JA`/`NEE`
+and returns None for anything else; the consequence of a True here is somebody being
+muted, so "I don't know" can only mean no. A None verdict is deliberately **not**
+cached: a non-answer is not a verdict, and storing it would turn one bad call into a
+permanent one.
+
+Verdicts that *are* answers land in `evasion_verdicts`, keyed on (guild, pattern, word).
+That is a cache and a review surface at once: the same dodge returns every day, a call
+costs money and a second of channel latency, and a verdict that changed its mind between
+two identical messages would be impossible to explain to the person on the receiving
+end. `/ai verdicts` lists them, `/ai forget` drops one so it is judged again.
+
+`build_judge_prompt()` deliberately does **not** carry the persona. A bot written to be
+sarcastic must not become a harsher judge because of it — the reply is a question of
+voice, the verdict is a question of fact.
+
+`/ai test` deliberately bypasses the on/off check — the persona has to be tunable
 before it is switched on for the channel — but it does spend budget, since it is a
 real call.
 
 `anthropic` is in `requirements.txt`, but `generate()` catches its `ImportError` and
 returns `None`: an older image without the package loads and runs, it just never
-generates. Without `ANTHROPIC_API_KEY` in `.env` on the host, `/ai enable` refuses and
+generates. Without `ANTHROPIC_API_KEY` in `.env` on the host, `/ai replies` and
+`/ai evasion` refuse to switch on and
 says so, rather than switching on something that will silently never work.
 
 ## Test mode (`cogs/testmode.py` + `services/testmode.py`)
@@ -232,7 +291,7 @@ Triggers and config live on `SqliteScoreRepository` rather than in a repo of the
 ## Conventions
 
 - Config flows one way: `.env` → `load_settings()` → `Settings` dataclass → `bot.settings`. Read config off `bot.settings`, never `os.getenv` outside `core/config.py` (`scripts/` are standalone and exempt).
-- **Four of those settings are overridable per guild** — `points_per_mistake`, `reply_on_mistake`, `min_words_for_detect`, `skip_capitalized`. `services/guild_settings.resolve()` merges stored overrides over the `.env` defaults, and `cogs/spelling.py` reads the result rather than `bot.settings` directly. They live in `guild_config`, so `repo.config_for()` fetches them in one read — this runs on every message. A stored value that will not parse falls back to the default with a warning rather than raising: a restored or hand-edited database must not stop the checker. These four are the emergency brake (points to 0, replies off), which is exactly why they cannot stay behind shell access to the host.
+- **Five of those settings are overridable per guild** — `spelling_enabled`, `points_per_mistake`, `reply_on_mistake`, `min_words_for_detect`, `skip_capitalized`. `spelling_enabled` switches the whole checker off: a server that only wants triggers and reminders should not have to set points to 0 and hope nobody works out why the ❌ still appears. `services/guild_settings.resolve()` merges stored overrides over the `.env` defaults, and `cogs/spelling.py` reads the result rather than `bot.settings` directly. They live in `guild_config`, so `repo.config_for()` fetches them in one read — this runs on every message. A stored value that will not parse falls back to the default with a warning rather than raising: a restored or hand-edited database must not stop the checker. These are the emergency brake (points to 0, replies off), which is exactly why they cannot stay behind shell access to the host.
 - `/whitelist add|remove` take a comma-separated list, not a single word: the flagged-words report produces batches, and one command per word does not scale. `/whitelist remove` autocompletes from the guild's own entries — on a hybrid command that has to go through `@cmd.autocomplete("param")` rather than the `@app_commands.autocomplete` decorator. Its filter reads the text after the last comma, so suggestions keep working while typing a list.
 
 `Settings.whitelist` is a hardcoded default set merged with the DB whitelist at check time — global-ish defaults live in config, per-guild additions in DB. Genuinely-global slang belongs in `services/lexicon.py` instead.

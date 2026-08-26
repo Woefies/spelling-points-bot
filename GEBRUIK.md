@@ -98,8 +98,11 @@ Anthropic API-sleutel op de host staat.
 
 | Commando | Wat het doet |
 |---|---|
-| `/ai enable` | Zet AI-antwoorden aan |
-| `/ai disable` | Zet ze weer uit — terug naar de vaste teksten |
+| `/ai replies enabled:True` | Laat de AI trigger-antwoorden schrijven |
+| `/ai evasion enabled:True` | Laat de AI omzeilingen herkennen |
+| `/ai off` | Zet alle AI-functies in een keer uit |
+| `/ai verdicts` | Toon welke woorden als omzeiling zijn beoordeeld |
+| `/ai forget word:...` | Draai een oordeel terug. Een `-` wist alles |
 | `/ai persona tekst:...` | Beschrijf hoe de bot moet klinken. Een `-` zet de standaard terug |
 | `/ai budget aantal:50` | Maximaal aantal AI-antwoorden per dag. `0` = uit |
 | `/ai context send_message:True` | Laat het model ook het bericht zelf zien |
@@ -112,11 +115,11 @@ Anthropic API-sleutel op de host staat.
 /ai persona tekst: Je bent een droge collega. Kort, nuchter, nooit meer dan twee zinnen.
 /ai test woord: thuiswerken
 🤖 Weer thuis? De koffie hier is anders ook niet slechter geworden.
-/ai enable
+/ai replies enabled: True
 ✅ AI-antwoorden aan, maximaal 50 per dag.
 ```
 
-**Uitzetten kan altijd,** met `/ai disable`. De vaste tekst van elke trigger blijft
+**Uitzetten kan altijd,** met `/ai replies enabled:False` of `/ai off`. De vaste tekst van elke trigger blijft
 gewoon staan en wordt dan meteen weer gebruikt — je raakt niets kwijt. Datzelfde
 gebeurt vanzelf als het dagbudget op is, als het te lang duurt, of als er iets
 misgaat. De bot valt dan stil terug op de tekst die je zelf hebt ingevuld; je merkt
@@ -127,6 +130,58 @@ en hoeveel keer die persoon het gezegd heeft. De berichten van collega's blijven
 de server. Zet je `/ai context send_message:True` aan, dan wordt het bericht zelf
 meegestuurd naar Anthropic — betere antwoorden, maar berichten verlaten dan wel de
 server. Die keuze is bewust een aparte handeling.
+
+## Trigger-omzeiling
+
+Een trigger op `brent` reageert niet op `br3nt`, `brenttt`, `b r e n t` of `brentify` —
+dat zijn andere woorden. Daar zijn twee losse schakelaars voor.
+
+**Gratis, zonder AI:** `/trigger obfuscation enabled:True`
+
+Vangt alles wat na omrekenen letterlijk hetzelfde woord is:
+
+| Geschreven | Gevangen |
+|---|---|
+| `br3nt`, `br€nt` | ja — cijfers en tekens voor letters |
+| `brenttt`, `brenttttt` | ja — herhaalde letters |
+| `b r e n t`, `b-r-e-n-t`, `b.r.e.n.t` | ja — letters uit elkaar |
+| `brentify`, `brentje` | nee — dat zijn andere woorden |
+| `brand`, `bren` | nee |
+
+Dit is een vaste rekenregel, geen oordeel. Er gaat niets naar buiten en het kost niets.
+
+**Met AI:** `/ai evasion enabled:True`
+
+Woorden die op een trigger *lijken* maar er niet gelijk aan zijn — `brentify`,
+`brentje`, `superbrent` — worden aan de AI voorgelegd met één vraag: is dit een
+omzeiling, ja of nee. Bij twijfel altijd nee.
+
+Wat er nooit wordt voorgelegd: woorden die in het woordenboek staan, woorden die jij
+gewhitelist hebt, en woorden waar al eerder een oordeel over gegeven is. Per bericht
+worden er maximaal 3 woorden voorgelegd.
+
+**Een oordeel telt als een gewone treffer.** Dus reageert de bot, telt de teller, en
+loopt een eventuele straf via `/punish` — precies zoals bij een gewone treffer. Staat
+`/punish mode` op waarschuwen, dan wordt er niemand gedempt.
+
+```
+brentify weer hoor
+Bot: @jij dat is 3 keer nu.
+     (`brentify` gelezen als omzeiling van `brent`)
+```
+
+**Oordelen corrigeren.** De AI heeft het niet altijd bij het rechte eind. Elk oordeel
+wordt onthouden, dus je kunt het terugkijken en terugdraaien:
+
+| Commando | Wat het doet |
+|---|---|
+| `/ai verdicts` | Alle beoordeelde woorden, met 🚫 of ✅ |
+| `/ai forget word:brentje` | Vergeet dit oordeel, opnieuw beoordelen |
+| `/ai forget word:-` | Vergeet alles |
+| `/whitelist add woorden:brentje` | Voorgoed met rust laten, ook door de AI |
+
+**Zet `/punish mode` eerst op waarschuwen** als je dit aanzet. Dan zie je een paar dagen
+wie er gedempt *zou* worden, zonder dat er iemand stilvalt.
 
 ## Testkanaal
 

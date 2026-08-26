@@ -1,4 +1,4 @@
-"""Per-guild overrides for the four settings that shape the spelling check.
+"""Per-guild overrides for the settings that shape the spelling check.
 
 These started as environment variables, which meant tuning them needed shell
 access to the host and a restart. They are the knobs you actually reach for when
@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 
 # key -> (attribute on Settings, kind)
 FIELDS = {
+    "spelling_enabled": ("spelling_enabled", "bool"),
     "points_per_mistake": ("points_per_mistake", "int"),
     "reply_on_mistake": ("reply_on_mistake", "bool"),
     "min_words_for_detect": ("min_words_for_detect", "int"),
@@ -22,6 +23,7 @@ FIELDS = {
 }
 
 LABELS = {
+    "spelling_enabled": "spelling controleren",
     "points_per_mistake": "punten per fout",
     "reply_on_mistake": "antwoorden bij een fout",
     "min_words_for_detect": "minimum aantal woorden",

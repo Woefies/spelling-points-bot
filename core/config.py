@@ -12,6 +12,9 @@ class Settings:
     skip_capitalized: bool = True
     reply_on_mistake: bool = True
     points_per_mistake: int = 1
+    # The whole spelling flow, on or off. A server that only wants triggers and
+    # reminders should not have to set points to 0 and hope nobody notices.
+    spelling_enabled: bool = True
     db_path: str = "data/points.db"
     version: str = "unknown"
     github_repo: str = "Woefies/spelling-points-bot"
@@ -60,6 +63,7 @@ def load_settings() -> Settings:
     skip_capitalized = _parse_bool(os.getenv("SKIP_CAPITALIZED", str(defaults.skip_capitalized)))
     reply_on_mistake = _parse_bool(os.getenv("REPLY_ON_MISTAKE", str(defaults.reply_on_mistake)))
     points_per_mistake = int(os.getenv("POINTS_PER_MISTAKE", defaults.points_per_mistake))
+    spelling_enabled = _parse_bool(os.getenv("SPELLING_ENABLED", str(defaults.spelling_enabled)))
     db_path = os.getenv("DB_PATH", defaults.db_path)
     version = _read_version()
     github_repo = os.getenv("GITHUB_REPO", defaults.github_repo)
@@ -74,6 +78,7 @@ def load_settings() -> Settings:
         skip_capitalized=skip_capitalized,
         reply_on_mistake=reply_on_mistake,
         points_per_mistake=points_per_mistake,
+        spelling_enabled=spelling_enabled,
         db_path=db_path,
         version=version,
         github_repo=github_repo,

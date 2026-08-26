@@ -88,6 +88,23 @@ class SqliteScoreRepository(ScoreRepository):
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_hits_lookup ON trigger_hits (guild_id, trigger_id, user_id)"
             )
+            # Verdicts on whether a word dodges a trigger. Cached rather than
+            # re-asked: the same dodge comes back every day, a model call costs
+            # money and a second of channel latency, and a verdict that changed
+            # its mind between two identical messages would be impossible to
+            # explain to the person on the receiving end.
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS evasion_verdicts (
+                    guild_id INTEGER NOT NULL,
+                    pattern TEXT NOT NULL,
+                    word TEXT NOT NULL,
+                    verdict INTEGER NOT NULL,
+                    ts TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (guild_id, pattern, word)
+                )
+                """
+            )
             # CREATE TABLE IF NOT EXISTS does nothing to a table that already
             # exists, so a column added later needs an explicit migration —
             # every deployment out there predates punish_minutes.
@@ -315,6 +332,7 @@ class SqliteScoreRepository(ScoreRepository):
         "reminders": "reminders",
         "triggers": "triggers",
         "trigger_hits": "trigger_hits",
+        "evasion_verdicts": "evasion_verdicts",
         "whitelist": "whitelist",
         "scores": "scores",
         "guild_config": "guild_config",
@@ -333,6 +351,56 @@ class SqliteScoreRepository(ScoreRepository):
             cur = self._conn.execute(f"DELETE FROM {table} WHERE guild_id = ?", (guild_id,))
             self._conn.commit()
         return cur.rowcount
+
+    # ------------------------------------------------------------ evasion verdicts
+
+    def get_evasion_verdict(self, guild_id: int, pattern: str, word: str) -> bool | None:
+        """True/False if this word was judged before, None if it never was."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT verdict FROM evasion_verdicts WHERE guild_id = ? AND pattern = ? AND word = ?",
+                (guild_id, pattern, word.lower()),
+            ).fetchone()
+        return None if row is None else bool(row[0])
+
+    def set_evasion_verdict(self, guild_id: int, pattern: str, word: str, verdict: bool) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO evasion_verdicts (guild_id, pattern, word, verdict)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(guild_id, pattern, word) DO UPDATE SET
+                    verdict = excluded.verdict, ts = CURRENT_TIMESTAMP
+                """,
+                (guild_id, pattern, word.lower(), 1 if verdict else 0),
+            )
+            self._conn.commit()
+
+    def list_evasion_verdicts(self, guild_id: int) -> list[tuple[str, str, bool]]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT pattern, word, verdict FROM evasion_verdicts
+                WHERE guild_id = ? ORDER BY verdict DESC, pattern, word
+                """,
+                (guild_id,),
+            ).fetchall()
+        return [(r[0], r[1], bool(r[2])) for r in rows]
+
+    def forget_evasion_verdict(self, guild_id: int, word: str | None) -> int:
+        """Drop one remembered verdict, or all of them when `word` is None."""
+        with self._lock:
+            if word is None:
+                cur = self._conn.execute(
+                    "DELETE FROM evasion_verdicts WHERE guild_id = ?", (guild_id,)
+                )
+            else:
+                cur = self._conn.execute(
+                    "DELETE FROM evasion_verdicts WHERE guild_id = ? AND word = ?",
+                    (guild_id, word.lower()),
+                )
+            self._conn.commit()
+            return cur.rowcount
 
     def config_for(self, guild_id: int) -> dict[str, str]:
         with self._lock:

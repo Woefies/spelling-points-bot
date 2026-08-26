@@ -35,6 +35,9 @@ class SpellingCog(commands.Cog):
         stored = self.bot.repo.config_for(message.guild.id)
         conf = resolve(stored, self.bot.settings)
 
+        if not conf["spelling_enabled"]:
+            return
+
         where = state_for(stored, message.channel)
         if where == MUTED:
             return

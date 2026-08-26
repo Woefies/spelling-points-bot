@@ -53,6 +53,13 @@ class SettingsCog(commands.Cog):
             ephemeral=True,
         )
 
+    @settings.command(name="spelling", description="Of de bot berichten op spelling controleert")
+    @app_commands.describe(
+        enabled="Uit betekent: geen kruisjes, geen punten. Triggers en reminders blijven werken"
+    )
+    async def spelling_cmd(self, interaction: discord.Interaction, enabled: bool) -> None:
+        await self._save(interaction, "spelling_enabled", enabled)
+
     @settings.command(name="points", description="Hoeveel strafpunten een fout kost. 0 = niets tellen")
     @app_commands.describe(amount="Punten per fout. Zet op 0 om het puntensysteem stil te zetten")
     async def points_cmd(
