@@ -24,6 +24,12 @@ MAX_TOKENS = 300
 JUDGE_MAX_TOKENS = 8
 TIMEOUT_SECONDS = 5.0
 DEFAULT_BUDGET = 50
+# Bounds on what an admin may dial these to. A timeout long enough to be worth
+# raising is already long enough to make the channel feel stuck, and one below a
+# couple of seconds would fail on a perfectly healthy call.
+MIN_TIMEOUT, MAX_TIMEOUT = 2.0, 15.0
+DEFAULT_CANDIDATES = 3
+MIN_CANDIDATES, MAX_CANDIDATES = 1, 10
 
 DEFAULT_PERSONA = (
     "Je bent een Discord-bot op de werkvloer van een klein Nederlands bedrijf. "
@@ -68,7 +74,9 @@ def build_prompt(pattern: str, count: int, message: str | None) -> str:
     return "\n".join(lines)
 
 
-async def _ask(system: str, prompt: str, max_tokens: int, what: str) -> str | None:
+async def _ask(
+    system: str, prompt: str, max_tokens: int, what: str, timeout: float = TIMEOUT_SECONDS
+) -> str | None:
     """One short completion, or None if anything at all goes wrong.
 
     Every caller in this module goes through here, so the timeout, the disabled
@@ -85,7 +93,7 @@ async def _ask(system: str, prompt: str, max_tokens: int, what: str) -> str | No
         return None
 
     try:
-        client = AsyncAnthropic(api_key=key, timeout=TIMEOUT_SECONDS)
+        client = AsyncAnthropic(api_key=key, timeout=timeout)
         response = await asyncio.wait_for(
             client.messages.create(
                 model=MODEL,
@@ -97,10 +105,12 @@ async def _ask(system: str, prompt: str, max_tokens: int, what: str) -> str | No
                 system=system,
                 messages=[{"role": "user", "content": prompt}],
             ),
-            timeout=TIMEOUT_SECONDS + 1,
+            # Outer guard as well as the client's own: a client that never
+            # settles would otherwise hold the message handler open.
+            timeout=timeout + 1,
         )
     except asyncio.TimeoutError:
-        log.warning("AI %s timed out after %.0fs", what, TIMEOUT_SECONDS)
+        log.warning("AI %s timed out after %.1fs", what, timeout)
         return None
     except Exception:
         log.exception("AI %s failed", what)
@@ -114,9 +124,9 @@ async def _ask(system: str, prompt: str, max_tokens: int, what: str) -> str | No
     return text or None
 
 
-async def generate(persona: str, prompt: str) -> str | None:
+async def generate(persona: str, prompt: str, timeout: float = TIMEOUT_SECONDS) -> str | None:
     """A trigger reply in the guild's own voice, or None to use the stored text."""
-    return await _ask(f"{persona}\n\n{GUARDRAILS}", prompt, MAX_TOKENS, "reply")
+    return await _ask(f"{persona}\n\n{GUARDRAILS}", prompt, MAX_TOKENS, "reply", timeout)
 
 
 def build_judge_prompt(pattern: str, word: str, message: str | None) -> str:
@@ -153,12 +163,27 @@ def parse_verdict(raw: str | None) -> bool | None:
     return None
 
 
-async def judge_evasion(pattern: str, word: str, message: str | None) -> bool | None:
+async def judge_evasion(
+    pattern: str, word: str, message: str | None, timeout: float = TIMEOUT_SECONDS
+) -> bool | None:
     """True if the word dodges the trigger, False if not, None if unknown."""
     raw = await _ask(
-        JUDGE_SYSTEM, build_judge_prompt(pattern, word, message), JUDGE_MAX_TOKENS, "verdict"
+        JUDGE_SYSTEM,
+        build_judge_prompt(pattern, word, message),
+        JUDGE_MAX_TOKENS,
+        "verdict",
+        timeout,
     )
     return parse_verdict(raw)
+
+
+def clamp(value: float, low: float, high: float) -> float:
+    """Keep a stored setting inside its bounds.
+
+    Applied on read as well as on write: a hand-edited or restored database can
+    hold anything, and a nonsense timeout must not be able to stall the channel.
+    """
+    return max(low, min(high, value))
 
 
 def parse_usage(raw: str | None, today: str) -> int:

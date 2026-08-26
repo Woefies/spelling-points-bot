@@ -180,9 +180,16 @@ is the only place that reads `ANTHROPIC_API_KEY`. Three guards, in this order:
    `ai_usage` = `"YYYY-MM-DD:count"`. A different date resets it, so no cron job is
    needed. The counter is incremented **before** the call, not after — a budget that
    only counts successes cannot stop a loop that is failing.
-2. **A 5-second timeout**, both on the client and as an outer `asyncio.wait_for`. A
-   late joke is worse than an instant static one.
+2. **A timeout** (default 5s, `/ai limits`), both on the client and as an outer
+   `asyncio.wait_for`. A late joke is worse than an instant static one.
 3. **Fallback to the stored text** on any exception at all.
+
+**All three limits are per-guild and set from Discord** — budget, timeout, and how many
+words one message may send to the model (`ai_candidates`, default 3, the ceiling that
+stops one long message spending a day's budget). Same reasoning as the reminder texts
+and the punishment ladder: tuning the thing that costs money must not need a redeploy
+by whoever runs the host. `clamp()` is applied **on read as well as on write**, so a
+hand-edited or restored database cannot put a nonsense timeout in front of the channel.
 
 The call sends `thinking={"type": "disabled"}` and `output_config={"effort": "low"}`:
 a one-liner needs no deliberation, and every second spent thinking is a second the

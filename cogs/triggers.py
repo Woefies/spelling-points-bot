@@ -23,9 +23,6 @@ log = logging.getLogger(__name__)
 
 CLEAR = "-"  # sentinel in /trigger edit meaning "empty this field"
 CONFIG_OBFUSCATION = "trigger_obfuscation"
-# Ceiling on how many words from one message get sent to the model. Without it a
-# single long message could spend a day's budget by itself.
-MAX_CANDIDATES = 3
 FALLBACK_RESPONSE = "{user} — let op je woorden."
 MAX_LENGTH = 2000  # Discord's per-message limit, applied per | variant
 
@@ -140,7 +137,10 @@ class TriggersCog(commands.Cog):
             return None
 
         skip = {w.lower() for w in self.bot.repo.get_whitelist(message.guild.id)}
-        for word in near_misses(message.content, trig.pattern, skip)[:MAX_CANDIDATES]:
+        # Per guild, via /ai limits: without a ceiling here a single long message
+        # could spend a whole day's budget by itself.
+        limit = ai.candidates(message.guild.id)
+        for word in near_misses(message.content, trig.pattern, skip)[:limit]:
             if self._is_real_word(word):
                 continue
             if await ai.evasion_for(message.guild.id, trig.pattern, word, message.content):

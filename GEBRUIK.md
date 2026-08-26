@@ -104,7 +104,8 @@ Anthropic API-sleutel op de host staat.
 | `/ai verdicts` | Toon welke woorden als omzeiling zijn beoordeeld |
 | `/ai forget word:...` | Draai een oordeel terug. Een `-` wist alles |
 | `/ai persona tekst:...` | Beschrijf hoe de bot moet klinken. Een `-` zet de standaard terug |
-| `/ai budget aantal:50` | Maximaal aantal AI-antwoorden per dag. `0` = uit |
+| `/ai budget amount:50` | Maximaal aantal AI-aanroepen per dag. `0` = uit |
+| `/ai limits` | Toon de limieten, of pas ze aan |
 | `/ai context send_message:True` | Laat het model ook het bericht zelf zien |
 | `/ai test woord:thuiswerken` | Genereer nu één voorbeeldantwoord om je persona te testen |
 | `/ai status` | Staat het aan, hoeveel is er vandaag gebruikt, en welke persona geldt |
@@ -124,6 +125,17 @@ gewoon staan en wordt dan meteen weer gebruikt — je raakt niets kwijt. Datzelf
 gebeurt vanzelf als het dagbudget op is, als het te lang duurt, of als er iets
 misgaat. De bot valt dan stil terug op de tekst die je zelf hebt ingevuld; je merkt
 er in het kanaal niets van.
+
+**Limieten.** Alles wat geld kost of het kanaal laat wachten stel je zelf in:
+
+| Limiet | Commando | Bereik | Standaard | Wat het doet |
+|---|---|---|---|---|
+| Dagbudget | `/ai budget amount:50` | 0 – 1000 | 50 | Op is op; daarna vaste teksten. Reset elke dag vanzelf |
+| Wachttijd | `/ai limits timeout:5` | 2 – 15 s | 5 s | Hoe lang het kanaal wacht voor hij de vaste tekst stuurt |
+| Woorden per bericht | `/ai limits candidates:3` | 1 – 10 | 3 | Voorkomt dat één lang bericht je hele dagbudget opmaakt |
+
+`/ai limits` zonder iets in te vullen toont ze alleen. `/ai status` zet ze naast het
+verbruik van vandaag.
 
 **Wat gaat er naar buiten?** Standaard alleen het trefwoord waar de trigger op let
 en hoeveel keer die persoon het gezegd heeft. De berichten van collega's blijven op
