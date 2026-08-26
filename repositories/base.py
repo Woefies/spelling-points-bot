@@ -17,6 +17,11 @@ class Trigger:
     response: str | None  # None = react only, don't reply
     reactions: str | None  # comma-separated emoji, None = reply only
     punish_minutes: int | None  # timeout length, None = no punishment
+    # Whether a model may judge near-misses of this pattern as deliberate dodges.
+    # Per trigger and off by default: watching a joke trigger is wasted budget,
+    # and watching one that mutes is a decision to make deliberately, once, for
+    # that trigger — not a blanket setting that quietly covers all of them.
+    watch_evasion: bool = False
 
 
 class ScoreRepository(ABC):

@@ -171,9 +171,24 @@ class AICog(commands.Cog):
         from cogs.punishment import CONFIG_MODE, MODE_LABELS
 
         mode = self.bot.repo.get_config(interaction.guild_id, CONFIG_MODE) or "off"
+        watched = [t for t in self.bot.repo.list_triggers(interaction.guild_id) if t.watch_evasion]
+        if not watched:
+            # On, but pointed at nothing. Saying so here is the difference between
+            # a setting that looks broken and one that is simply not aimed yet.
+            await interaction.response.send_message(
+                "✅ AI-omzeilingscheck aan — maar **geen enkele trigger staat aan** om "
+                "in de gaten gehouden te worden, dus er gebeurt nog niets.\n"
+                "_Zet 'm per trigger aan met `/trigger edit id:… watch:True`. "
+                "Bekijk ze met `/trigger list`._",
+                ephemeral=True,
+            )
+            return
+
+        names = ", ".join(f"`{t.pattern.split('|')[0]}`" for t in watched[:10])
         await interaction.response.send_message(
-            "✅ AI-omzeilingscheck aan. Woorden die *lijken* op een trigger maar er "
-            "niet gelijk aan zijn, worden aan de AI voorgelegd.\n"
+            f"✅ AI-omzeilingscheck aan voor **{len(watched)}** trigger(s): {names}\n"
+            "Woorden die *lijken* op die triggers maar er niet gelijk aan zijn, "
+            "worden aan de AI voorgelegd.\n"
             f"⚠️ Een oordeel telt als een gewone treffer, dus straffen lopen via "
             f"`/punish` — die staat nu op **{MODE_LABELS[mode]}**.\n"
             "_Zet `/punish mode` eerst op waarschuwen en kijk een paar dagen mee. "
@@ -303,11 +318,12 @@ class AICog(commands.Cog):
         content = "bericht wordt meegestuurd" if self.bot.repo.get_config(gid, CONFIG_SEND_MESSAGE) == "1" \
             else "alleen het trefwoord"
         judged = len(self.bot.repo.list_evasion_verdicts(gid))
+        watched = sum(1 for t in self.bot.repo.list_triggers(gid) if t.watch_evasion)
         await interaction.response.send_message(
             f"🤖 API-sleutel {key}\n"
             f"• Antwoorden schrijven: **{'aan' if self.replies_on(gid) else 'uit'}**\n"
             f"• Omzeiling beoordelen: **{'aan' if self.evasion_on(gid) else 'uit'}** "
-            f"({judged} woord(en) beoordeeld)\n"
+            f"voor {watched} trigger(s), {judged} woord(en) beoordeeld\n"
             f"• Vandaag gebruikt: **{self.used_today(gid)}** van **{self.budget(gid)}**\n"
             f"• Context: {content}\n\n"
             f"**Persona:**\n>>> {self.persona(gid)[:1500]}",

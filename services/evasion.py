@@ -41,7 +41,7 @@ MAX_EXTRA_LETTERS = 6
 # Below this, one edit is most of the word and everything resembles everything.
 # It also gates the "built around" rule: a two-letter core turns up inside far
 # too many ordinary words to be worth a model's opinion.
-MIN_CORE_LENGTH = 4
+MIN_CORE_LENGTH = 3
 
 # A two-letter spaced pattern would fire on ordinary abbreviations.
 MIN_SPACED_LETTERS = 3
@@ -170,27 +170,35 @@ def near_misses(text: str, pattern: str, skip: set[str]) -> list[str]:
     whitelisted has to be fine for every checker, or whitelisting looks broken to
     the person who did it.
     """
-    targets = [normalize(p) for p in _phrases(pattern)]
-    targets = [t for t in targets if t]
+    # Two forms per phrase, because the two rules below need different ones.
+    targets = [(core(p), normalize(p)) for p in _phrases(pattern)]
+    targets = [t for t in targets if len(t[0]) >= MIN_CORE_LENGTH]
     if not targets:
         return []
 
+    collapsed_targets = {t[1] for t in targets}
     found = []
     for word in _TOKEN_RE.findall(text):
         if word.lower() in skip:
             continue
-        norm = normalize(word)
-        if not norm or norm in targets or norm in skip:
+        word_core, word_norm = core(word), normalize(word)
+        if not word_norm or word_norm in collapsed_targets or word_norm in skip:
             continue
 
-        for target in targets:
-            if len(target) < MIN_CORE_LENGTH:
-                continue
+        for target_core, target_norm in targets:
+            # "Built around" runs on the uncollapsed core: collapsing would turn
+            # the trigger `kkr` into `kr`, which sits inside `kroket` and every
+            # other ordinary word with those letters in that order.
             built_around = (
-                target in norm and 0 < len(norm) - len(target) <= MAX_EXTRA_LETTERS
+                target_core in word_core
+                and 0 < len(word_core) - len(target_core) <= MAX_EXTRA_LETTERS
             )
+            # One edit runs on the collapsed form, where it is meant to catch a
+            # near-miss spelling rather than an addition.
             one_edit = (
-                len(norm) >= MIN_CORE_LENGTH and _edit_distance(norm, target, 1) <= 1
+                len(word_norm) >= MIN_CORE_LENGTH
+                and len(target_norm) >= MIN_CORE_LENGTH
+                and _edit_distance(word_norm, target_norm, 1) <= 1
             )
             if built_around or one_edit:
                 found.append(word)

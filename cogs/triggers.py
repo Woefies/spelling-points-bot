@@ -130,6 +130,11 @@ class TriggersCog(commands.Cog):
             if hits:
                 return hits[0]
 
+        # Per trigger, and only then per guild. A trigger nobody opted in stays
+        # a plain word-boundary match however the guild has AI configured.
+        if not trig.watch_evasion:
+            return None
+
         ai = self.bot.get_cog("AICog")
         if ai is None or not ai.evasion_on(message.guild.id):
             return None
@@ -141,6 +146,21 @@ class TriggersCog(commands.Cog):
             if await ai.evasion_for(message.guild.id, trig.pattern, word, message.content):
                 return word
         return None
+
+    def _watch_note(self, guild_id: int) -> str:
+        """Say plainly whether watching this trigger does anything yet.
+
+        Two switches have to line up — this trigger, and /ai evasion for the
+        guild — so the half that is still off names itself here rather than
+        being discovered later as "the bot just does not react to it".
+        """
+        ai = self.bot.get_cog("AICog")
+        if ai is not None and ai.evasion_on(guild_id):
+            return "👁️ De AI beoordeelt verdraaide schrijfwijzen van dit woord."
+        return (
+            "👁️ Genoteerd, maar er gebeurt nog niets: `/ai evasion` staat uit. "
+            "Zet die aan om dit te laten werken."
+        )
 
     def _is_real_word(self, word: str) -> bool:
         """Dictionary check, and never a reason to abort on failure."""
@@ -166,6 +186,8 @@ class TriggersCog(commands.Cog):
             what = trig.reactions or (trig.response or "").split("|")[0].strip()
             if trig.punish_minutes:
                 what = f"⏱️{trig.punish_minutes}m {what}".strip()
+            if trig.watch_evasion:
+                what = f"👁️ {what}".strip()
             label = f"#{trig.id} · {trig.pattern} → {what}"
             if len(label) > 100:
                 label = label[:97] + "..."
@@ -189,6 +211,7 @@ class TriggersCog(commands.Cog):
         response="Wat de bot terugzegt. Varianten met | zodat hij afwisselt. Leeg = niets zeggen",
         reactions="Emoji onder het bericht, gescheiden door kommas. Bijvoorbeeld: 👎,❌",
         minutes="Timeout in minuten bij dit woord. Leeg laten voor geen straf",
+        watch="Laat de AI ook verdraaide schrijfwijzen hiervan opsporen. Standaard uit",
     )
     async def add_cmd(
         self,
@@ -197,6 +220,7 @@ class TriggersCog(commands.Cog):
         response: str | None = None,
         reactions: str | None = None,
         minutes: app_commands.Range[int, 1, 1440] | None = None,
+        watch: bool = False,
     ) -> None:
         if not response and not reactions and not minutes:
             await interaction.response.send_message(
@@ -224,9 +248,11 @@ class TriggersCog(commands.Cog):
             return
 
         trigger_id = self.bot.repo.add_trigger(
-            interaction.guild_id, words, response, reactions, minutes
+            interaction.guild_id, words, response, reactions, minutes, watch
         )
         tail = f"\n⚠️ Dempt **{format_minutes(minutes)}** — {_punish_note(self.bot, interaction.guild_id)}" if minutes else ""
+        if watch:
+            tail += "\n" + self._watch_note(interaction.guild_id)
         await interaction.response.send_message(
             f"✅ Trigger **#{trigger_id}** aangemaakt op: `{words}`{tail}",
             ephemeral=True,
@@ -240,6 +266,7 @@ class TriggersCog(commands.Cog):
         response="Nieuw antwoord, varianten met |. Typ een - om het antwoord te wissen",
         reactions="Nieuwe emoji, gescheiden door kommas. Typ een - om ze te wissen",
         minutes="Timeout in minuten. Typ 0 om de straf te verwijderen",
+        watch="Of de AI verdraaide schrijfwijzen van dit woord mag opsporen",
     )
     async def edit_cmd(
         self,
@@ -249,6 +276,7 @@ class TriggersCog(commands.Cog):
         response: str | None = None,
         reactions: str | None = None,
         minutes: app_commands.Range[int, 0, 1440] | None = None,
+        watch: bool | None = None,
     ) -> None:
         existing = self.bot.repo.get_trigger(interaction.guild_id, id)
         if existing is None:
@@ -270,6 +298,8 @@ class TriggersCog(commands.Cog):
             # 0 rather than "-" here: the field is numeric, so a sentinel string
             # would not survive Discord's own validation.
             changes["punish_minutes"] = minutes or None
+        if watch is not None:
+            changes["watch_evasion"] = 1 if watch else 0
 
         if not changes:
             await interaction.response.send_message(
@@ -312,8 +342,11 @@ class TriggersCog(commands.Cog):
             does.append(f"{len(updated.response.split('|'))} antwoordvariant(en)")
         if updated.punish_minutes:
             does.append(f"dempt {format_minutes(updated.punish_minutes)}")
+        if updated.watch_evasion:
+            does.append("AI let op omzeiling")
+        tail = "\n" + self._watch_note(interaction.guild_id) if updated.watch_evasion else ""
         await interaction.response.send_message(
-            f"✏️ Trigger **#{id}** aangepast: `{updated.pattern}` · " + " · ".join(does),
+            f"✏️ Trigger **#{id}** aangepast: `{updated.pattern}` · " + " · ".join(does) + tail,
             ephemeral=True,
         )
 
@@ -358,8 +391,12 @@ class TriggersCog(commands.Cog):
                 parts.append(f"{count} antwoordvariant(en)")
             if trig.punish_minutes:
                 parts.append(f"⏱️ dempt {format_minutes(trig.punish_minutes)}")
+            if trig.watch_evasion:
+                parts.append("👁️ AI let op omzeiling")
             lines.append(" · ".join(parts))
         embed.description = "\n".join(lines)
+        if any(t.watch_evasion for t in rows):
+            embed.set_footer(text="👁️ = de AI beoordeelt ook verdraaide schrijfwijzen")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @trigger.command(name="remove", description="Verwijder een trigger. Kies hem uit de lijst")

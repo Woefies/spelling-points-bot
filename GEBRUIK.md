@@ -99,7 +99,7 @@ Anthropic API-sleutel op de host staat.
 | Commando | Wat het doet |
 |---|---|
 | `/ai replies enabled:True` | Laat de AI trigger-antwoorden schrijven |
-| `/ai evasion enabled:True` | Laat de AI omzeilingen herkennen |
+| `/ai evasion enabled:True` | Laat de AI omzeilingen herkennen (ook `watch` per trigger nodig) |
 | `/ai off` | Zet alle AI-functies in een keer uit |
 | `/ai verdicts` | Toon welke woorden als omzeiling zijn beoordeeld |
 | `/ai forget word:...` | Draai een oordeel terug. Een `-` wist alles |
@@ -150,11 +150,23 @@ Vangt alles wat na omrekenen letterlijk hetzelfde woord is:
 
 Dit is een vaste rekenregel, geen oordeel. Er gaat niets naar buiten en het kost niets.
 
-**Met AI:** `/ai evasion enabled:True`
+**Met AI:** twee schakelaars, allebei nodig
 
-Woorden die op een trigger *lijken* maar er niet gelijk aan zijn — `brentify`,
-`brentje`, `superbrent` — worden aan de AI voorgelegd met één vraag: is dit een
+```
+/ai evasion enabled: True              eenmalig, voor de hele server
+/trigger edit id: 4 watch: True        per trigger die je wilt laten bewaken
+```
+
+Standaard staat `watch` op elke trigger **uit**. Je zet 'm aan bij de triggers waar het
+er echt toe doet — meestal die met een straf. Een grappentrigger laten bewaken kost
+alleen budget.
+
+Woorden die op zo'n trigger *lijken* maar er niet gelijk aan zijn — `brentify`,
+`kkrtje`, `thuiswerkerig` — worden aan de AI voorgelegd met één vraag: is dit een
 omzeiling, ja of nee. Bij twijfel altijd nee.
+
+In `/trigger list` staat een 👁️ bij de triggers die bewaakt worden. Vergeet je een van
+de twee schakelaars, dan zegt de bot dat meteen in plaats van stil te blijven.
 
 Wat er nooit wordt voorgelegd: woorden die in het woordenboek staan, woorden die jij
 gewhitelist hebt, en woorden waar al eerder een oordeel over gegeven is. Per bericht
@@ -168,6 +180,15 @@ loopt een eventuele straf via `/punish` — precies zoals bij een gewone treffer
 brentify weer hoor
 Bot: @jij dat is 3 keer nu.
      (`brentify` gelezen als omzeiling van `brent`)
+```
+
+**Per trigger aan- en uitzetten.**
+
+```
+/trigger list                          👁️ toont wie er bewaakt wordt
+/trigger edit id: 4 watch: True        aanzetten
+/trigger edit id: 4 watch: False       uitzetten
+/trigger add words: ... watch: True    meteen aan bij het aanmaken
 ```
 
 **Oordelen corrigeren.** De AI heeft het niet altijd bij het rechte eind. Elk oordeel

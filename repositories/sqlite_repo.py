@@ -111,6 +111,10 @@ class SqliteScoreRepository(ScoreRepository):
             columns = {r[1] for r in self._conn.execute("PRAGMA table_info(triggers)")}
             if "punish_minutes" not in columns:
                 self._conn.execute("ALTER TABLE triggers ADD COLUMN punish_minutes INTEGER")
+            if "watch_evasion" not in columns:
+                self._conn.execute(
+                    "ALTER TABLE triggers ADD COLUMN watch_evasion INTEGER DEFAULT 0"
+                )
 
             # The daily leaderboard filters issues_log by guild and date on every
             # run; without this it is a full table scan of an append-only log.
@@ -424,12 +428,14 @@ class SqliteScoreRepository(ScoreRepository):
         response: str | None,
         reactions: str | None,
         punish_minutes: int | None = None,
+        watch_evasion: bool = False,
     ) -> int:
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO triggers (guild_id, pattern, response, reactions, punish_minutes) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (guild_id, pattern, response, reactions, punish_minutes),
+                "INSERT INTO triggers "
+                "(guild_id, pattern, response, reactions, punish_minutes, watch_evasion) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (guild_id, pattern, response, reactions, punish_minutes, 1 if watch_evasion else 0),
             )
             self._conn.commit()
         return cur.lastrowid
@@ -437,24 +443,24 @@ class SqliteScoreRepository(ScoreRepository):
     def list_triggers(self, guild_id: int) -> list[Trigger]:
         with self._lock:
             cur = self._conn.execute(
-                "SELECT id, guild_id, pattern, response, reactions, punish_minutes FROM triggers "
-                "WHERE guild_id = ? ORDER BY id",
+                "SELECT id, guild_id, pattern, response, reactions, punish_minutes, "
+                "COALESCE(watch_evasion, 0) FROM triggers WHERE guild_id = ? ORDER BY id",
                 (guild_id,),
             )
             rows = cur.fetchall()
-        return [Trigger(*row) for row in rows]
+        return [_trigger(row) for row in rows]
 
     def get_trigger(self, guild_id: int, trigger_id: int) -> Trigger | None:
         with self._lock:
             cur = self._conn.execute(
-                "SELECT id, guild_id, pattern, response, reactions, punish_minutes FROM triggers "
-                "WHERE guild_id = ? AND id = ?",
+                "SELECT id, guild_id, pattern, response, reactions, punish_minutes, "
+                "COALESCE(watch_evasion, 0) FROM triggers WHERE guild_id = ? AND id = ?",
                 (guild_id, trigger_id),
             )
             row = cur.fetchone()
-        return Trigger(*row) if row else None
+        return _trigger(row) if row else None
 
-    _TRIGGER_COLUMNS = ("pattern", "response", "reactions", "punish_minutes")
+    _TRIGGER_COLUMNS = ("pattern", "response", "reactions", "punish_minutes", "watch_evasion")
 
     def update_trigger(self, guild_id: int, trigger_id: int, changes: dict) -> bool:
         columns = [c for c in self._TRIGGER_COLUMNS if c in changes]
@@ -485,3 +491,8 @@ class SqliteScoreRepository(ScoreRepository):
             )
             row = cur.fetchone()
         return row is not None
+
+
+def _trigger(row) -> Trigger:
+    """Build a Trigger from a row, turning the stored 0/1 back into a bool."""
+    return Trigger(*row[:6], watch_evasion=bool(row[6]))

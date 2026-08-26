@@ -135,14 +135,28 @@ Two guards make that tier safe, and both were bugs before they were guards:
 **Tier 2, `near_misses()` — candidates only, never a verdict.** A different word built
 around the trigger (`brentify`, `brentje`, `superbrent`) or one edit away (`brant`).
 Whether that is a dodge depends on what the trigger means, so a model decides — see
-below. Short cores are excluded (`MIN_CORE_LENGTH`), because a two-letter core sits
-inside far too many ordinary words to be worth asking about.
+below. The "built around" rule compares
+**cores**, not normalised forms: collapsing turns the trigger `kkr` into `kr`, which
+sits inside `kroket` and every other ordinary word with those letters in that order.
+The one-edit rule uses the normalised form, where it is meant to catch a near-miss
+spelling rather than an addition. Cores under `MIN_CORE_LENGTH` are excluded entirely.
+
+**Tier 2 is opted into per trigger**, via the `watch_evasion` column (`/trigger add|edit
+watch:`), and off for every existing row. Watching a joke trigger is wasted budget;
+watching one that mutes is a decision to make once, deliberately, for that trigger.
+Tier 1 stays guild-wide — it is free, deterministic, and claims only that a word *is*
+the trigger word.
+
+Two switches therefore have to line up, which is a discoverability trap, so both ends
+name the missing half: `/trigger … watch:True` says so when `/ai evasion` is off, and
+`/ai evasion enabled:True` says so when no trigger is watched. Neither reports success
+into a void.
 
 `cogs/triggers.py:_dodge()` runs them cheapest-first and the paid tier only ever sees
-words that tier 1 could not settle, that the dictionaries do not recognise
-(`SpellingChecker.knows()`, public for exactly this), and that nobody whitelisted — a
-word an admin has whitelisted must be fine for every checker. `MAX_CANDIDATES` caps how
-many words one message can send to the model.
+words on a watched trigger that tier 1 could not settle, that the dictionaries do not
+recognise (`SpellingChecker.knows()`, public for exactly this), and that nobody
+whitelisted — a word an admin has whitelisted must be fine for every checker.
+`MAX_CANDIDATES` caps how many words one message can send to the model.
 
 A dodge is a normal trigger hit from there on: it logs, it replies, and it dispatches
 `trigger_punishment` through the punishment cog, so **`/punish mode` still governs
