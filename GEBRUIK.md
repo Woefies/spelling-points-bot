@@ -253,6 +253,41 @@ en `/test isolate enabled:False` zet het terug.
 
 Reminders blijven gewoon versturen, ook tijdens isolate. Die staan er los van.
 
+## Makkelijker aanpassen
+
+Bij de drie commando's met de langste teksten hoef je niets over te typen. Vul alleen
+het ID in en laat de rest leeg, dan opent er een venster met wat er nú staat:
+
+```
+/trigger edit id: 4
+/reminder edit id: 2
+/ai persona
+```
+
+Je past aan wat je wilt en klikt op opslaan. Het antwoordveld is meerdere regels hoog,
+dus varianten met `|` zijn goed te lezen.
+
+**Leeg maken doe je door het veld leeg te laten.** Het `-`-trucje is hier niet nodig —
+je ziet immers wat er staat.
+
+Vul je wél iets in achter het commando, dan werkt het gewoon als vanouds op één regel:
+
+```
+/trigger edit id: 4 watch: True
+```
+
+Dat is handig om een kant-en-klare regel te plakken. Beide manieren blijven bestaan.
+
+| Veld in het venster | Wat je invult |
+|---|---|
+| Timeout in minuten | Een getal, of leeg voor geen straf |
+| AI let op omzeiling | `ja` of `nee` |
+| Iedereen pingen | `ja` of `nee` |
+| Kanaal | Leeg laten, of het kanaal-ID plakken |
+
+Typ je iets anders, dan zegt de bot welk veld hij niet snapte in plaats van stil te
+mislukken.
+
 ## Rustig aan met commando's
 
 Meer dan 5 commando's binnen 15 seconden en de bot vraagt je even te wachten.

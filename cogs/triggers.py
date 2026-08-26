@@ -15,6 +15,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from services.evasion import near_misses, obfuscations
+from services.forms import read_bool, read_optional_int, write_bool
 from services.punishment import format_minutes, render
 from services.testmode import MARKER, MUTED, TEST, state_for
 from services.variants import compile_phrases, pick_variant, split_variants
@@ -261,7 +262,7 @@ class TriggersCog(commands.Cog):
     @trigger.command(name="edit", description="Wijzig de woorden, het antwoord of de reacties van een trigger")
     @app_commands.autocomplete(id=_trigger_choices)
     @app_commands.describe(
-        id="Kies de trigger die je wilt aanpassen",
+        id="Kies de trigger. Vul verder niets in voor een invulvenster",
         words="Nieuwe schrijfwijzen, gescheiden met |. Leeg laten = ongewijzigd",
         response="Nieuw antwoord, varianten met |. Typ een - om het antwoord te wissen",
         reactions="Nieuwe emoji, gescheiden door kommas. Typ een - om ze te wissen",
@@ -283,6 +284,13 @@ class TriggersCog(commands.Cog):
             await interaction.response.send_message(
                 f"🚫 Geen trigger met ID **{id}**. Bekijk ze met `/trigger list`.", ephemeral=True
             )
+            return
+
+        # Only the ID given: open the form with the current values filled in,
+        # rather than making someone retype what they cannot see. Naming any
+        # other option keeps the one-line path, which stays copy-pasteable.
+        if all(v is None for v in (words, response, reactions, minutes, watch)):
+            await interaction.response.send_modal(TriggerForm(self, existing))
             return
 
         # A lone "-" means "make this empty", which is different from leaving the
@@ -307,34 +315,19 @@ class TriggersCog(commands.Cog):
             )
             return
 
-        too_long = _oversized(changes.get("response"))
-        if too_long:
-            await interaction.response.send_message(
-                f"🚫 Variant {too_long[0]} is **{too_long[1]}** tekens, en Discord staat "
-                f"er {MAX_LENGTH} toe per bericht.",
-                ephemeral=True,
-            )
-            return
-
-        if not changes.get("pattern", existing.pattern).strip():
-            await interaction.response.send_message(
-                "🚫 `woorden` mag niet leeg zijn — dan weet de bot nergens op te letten.",
-                ephemeral=True,
-            )
-            return
-
-        response = changes.get("response", existing.response)
-        reactions = changes.get("reactions", existing.reactions)
-        if not response and not reactions:
-            await interaction.response.send_message(
-                "🚫 Dan blijft er niets over: houd een `antwoord` of `reacties` over, "
-                "anders doet de trigger niets. Verwijderen kan met `/trigger remove`.",
-                ephemeral=True,
-            )
+        problem = _validate(existing, changes)
+        if problem:
+            await interaction.response.send_message(problem, ephemeral=True)
             return
 
         self.bot.repo.update_trigger(interaction.guild_id, id, changes)
-        updated = self.bot.repo.get_trigger(interaction.guild_id, id)
+        await interaction.response.send_message(
+            self._summary(interaction.guild_id, id), ephemeral=True
+        )
+
+    def _summary(self, guild_id: int, trigger_id: int) -> str:
+        """What the trigger now does, in one line."""
+        updated = self.bot.repo.get_trigger(guild_id, trigger_id)
         does = []
         if updated.reactions:
             does.append(f"reageert met {updated.reactions}")
@@ -344,10 +337,11 @@ class TriggersCog(commands.Cog):
             does.append(f"dempt {format_minutes(updated.punish_minutes)}")
         if updated.watch_evasion:
             does.append("AI let op omzeiling")
-        tail = "\n" + self._watch_note(interaction.guild_id) if updated.watch_evasion else ""
-        await interaction.response.send_message(
-            f"✏️ Trigger **#{id}** aangepast: `{updated.pattern}` · " + " · ".join(does) + tail,
-            ephemeral=True,
+        tail = "\n" + self._watch_note(guild_id) if updated.watch_evasion else ""
+        return (
+            f"✏️ Trigger **#{trigger_id}** aangepast: `{updated.pattern}` · "
+            + " · ".join(does)
+            + tail
         )
 
     @trigger.command(name="obfuscation", description="Ook reageren op verdraaide schrijfwijzen zoals br3nt")
@@ -409,6 +403,131 @@ class TriggersCog(commands.Cog):
             await interaction.response.send_message(
                 f"🚫 Geen trigger gevonden met ID **{id}**.", ephemeral=True
             )
+
+
+class TriggerForm(discord.ui.Modal):
+    """The edit screen for one trigger, pre-filled with what it holds now.
+
+    A lone "-" means nothing here, unlike the slash command: in a form you can
+    see every field, so an empty box already says "empty this" unambiguously.
+    """
+
+    def __init__(self, cog: "TriggersCog", trig) -> None:
+        super().__init__(title=f"Trigger #{trig.id} aanpassen")
+        self.cog = cog
+        self.trigger_id = trig.id
+
+        self.words = discord.ui.TextInput(
+            label="Woorden",
+            default=trig.pattern,
+            placeholder="thuiswerken|thuis werken",
+            max_length=500,
+        )
+        self.response = discord.ui.TextInput(
+            label="Antwoord (leeg = geen antwoord)",
+            style=discord.TextStyle.paragraph,
+            default=trig.response or "",
+            placeholder="Varianten scheiden met | · {user} {count} {minutes}",
+            required=False,
+            max_length=2000,
+        )
+        self.reactions = discord.ui.TextInput(
+            label="Emoji (leeg = geen)",
+            default=trig.reactions or "",
+            placeholder="👀,❌",
+            required=False,
+            max_length=200,
+        )
+        self.minutes = discord.ui.TextInput(
+            label="Timeout in minuten (leeg = geen straf)",
+            default=str(trig.punish_minutes) if trig.punish_minutes else "",
+            placeholder="5",
+            required=False,
+            max_length=4,
+        )
+        self.watch = discord.ui.TextInput(
+            label="AI let op omzeiling? ja / nee",
+            default=write_bool(bool(trig.watch_evasion)),
+            required=False,
+            max_length=10,
+        )
+        for field in (self.words, self.response, self.reactions, self.minutes, self.watch):
+            self.add_item(field)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        minutes = read_optional_int(self.minutes.value, 1, 1440)
+        if isinstance(minutes, str):
+            await interaction.response.send_message(f"🚫 Timeout: {minutes}", ephemeral=True)
+            return
+
+        watch = read_bool(self.watch.value)
+        if watch is None:
+            await interaction.response.send_message(
+                f"🚫 Vul bij omzeiling `ja` of `nee` in, niet `{self.watch.value[:30]}`.",
+                ephemeral=True,
+            )
+            return
+
+        changes = {
+            "pattern": self.words.value.strip(),
+            "response": self.response.value.strip() or None,
+            "reactions": self.reactions.value.strip() or None,
+            "punish_minutes": minutes,
+            "watch_evasion": 1 if watch else 0,
+        }
+
+        existing = self.cog.bot.repo.get_trigger(interaction.guild_id, self.trigger_id)
+        if existing is None:
+            await interaction.response.send_message(
+                f"🚫 Trigger **#{self.trigger_id}** bestaat niet meer.", ephemeral=True
+            )
+            return
+
+        problem = _validate(existing, changes)
+        if problem:
+            await interaction.response.send_message(problem, ephemeral=True)
+            return
+
+        self.cog.bot.repo.update_trigger(interaction.guild_id, self.trigger_id, changes)
+        await interaction.response.send_message(
+            self.cog._summary(interaction.guild_id, self.trigger_id), ephemeral=True
+        )
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        # Without this a raising form shows Discord's own blank failure, which
+        # says nothing about which field was the problem.
+        log.exception("Trigger form failed")
+        message = f"⚠️ Opslaan mislukt: {type(error).__name__}: {error}"[:400]
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+
+
+def _validate(existing, changes: dict) -> str | None:
+    """Why this edit cannot be saved, or None if it can.
+
+    Shared by the slash command and the form on purpose: two copies of these
+    rules would drift, and the one that drifts is the one nobody is testing.
+    """
+    too_long = _oversized(changes.get("response"))
+    if too_long:
+        return (
+            f"🚫 Variant {too_long[0]} is **{too_long[1]}** tekens, en Discord staat "
+            f"er {MAX_LENGTH} toe per bericht."
+        )
+
+    if not changes.get("pattern", existing.pattern).strip():
+        return "🚫 `woorden` mag niet leeg zijn — dan weet de bot nergens op te letten."
+
+    response = changes.get("response", existing.response)
+    reactions = changes.get("reactions", existing.reactions)
+    if not response and not reactions:
+        return (
+            "🚫 Dan blijft er niets over: houd een `antwoord` of `reacties` over, "
+            "anders doet de trigger niets. Verwijderen kan met `/trigger remove`."
+        )
+    return None
 
 
 def _oversized(response: str | None) -> tuple[int, int] | None:

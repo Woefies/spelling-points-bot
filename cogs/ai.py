@@ -271,8 +271,19 @@ class AICog(commands.Cog):
         )
 
     @ai.command(name="persona", description="Beschrijf hoe de bot moet klinken")
-    @app_commands.describe(text="Hoe de bot schrijft. Typ een - om de standaard terug te zetten")
-    async def persona_cmd(self, interaction: discord.Interaction, text: str) -> None:
+    @app_commands.describe(text="Leeg laten opent een invulvenster. Een - zet de standaard terug")
+    async def persona_cmd(
+        self, interaction: discord.Interaction, text: str | None = None
+    ) -> None:
+        # Nothing given: open the form with the current persona in it. This is
+        # the longest text anyone writes in this bot, and rewriting it blind in a
+        # one-line box is how good wording gets lost.
+        if text is None:
+            await interaction.response.send_modal(
+                PersonaForm(self, self.persona(interaction.guild_id))
+            )
+            return
+
         if text.strip() == RESET:
             self.bot.repo.set_config(interaction.guild_id, CONFIG_PERSONA, None)
             await interaction.response.send_message(
@@ -392,6 +403,45 @@ class AICog(commands.Cog):
             f"**Persona:**\n>>> {self.persona(gid)[:1500]}",
             ephemeral=True,
         )
+
+
+
+class PersonaForm(discord.ui.Modal):
+    """The persona, in a box big enough to actually read it back."""
+
+    def __init__(self, cog: "AICog", current: str) -> None:
+        super().__init__(title="Persona aanpassen")
+        self.cog = cog
+        self.text = discord.ui.TextInput(
+            label="Hoe de bot schrijft",
+            style=discord.TextStyle.paragraph,
+            default=current,
+            placeholder="Lengte, toon, eigenaardigheden, en twee voorbeeldzinnen",
+            max_length=3000,
+        )
+        self.add_item(self.text)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        value = self.text.value.strip()
+        if not value:
+            await interaction.response.send_message(
+                "🚫 De persona mag niet leeg zijn. Wil je de standaard terug: "
+                "`/ai persona text:-`.",
+                ephemeral=True,
+            )
+            return
+        self.cog.bot.repo.set_config(interaction.guild_id, CONFIG_PERSONA, value)
+        await interaction.response.send_message(
+            f"✅ Persona opgeslagen.\n_Probeer 'm met `/ai test`._", ephemeral=True
+        )
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        log.exception("Persona form failed")
+        message = f"⚠️ Opslaan mislukt: {type(error).__name__}: {error}"[:400]
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

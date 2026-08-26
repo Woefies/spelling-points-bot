@@ -69,6 +69,40 @@ Slash-only group `/reminder add|edit|list|remove`, gated behind `default_permiss
 
 **No reminder or trigger text lives in the code.** There is no preset or seed command: every reminder and trigger is created at runtime and stored in SQLite, so changing wording never needs a code change, a rebuild, or a deploy by whoever runs the host. Restoring a lost set comes from a backup snapshot (see below), which holds the real current text rather than a stale template.
 
+## Edit forms (modals)
+
+`/trigger edit`, `/reminder edit` and `/ai persona` open a **pre-filled Discord form**
+when no other option is given, and keep their one-line slash path when one is. That
+split is the whole design: a form shows you what is stored before you change it, and a
+one-liner stays copy-pasteable, so neither replaces the other.
+
+Slash parameters are single-line and start empty, which for the three longest texts in
+the bot — a trigger's `|` variants, a reminder's message, the AI persona — means
+retyping from memory what you cannot see. That is where good wording gets lost.
+
+- Field parsing lives in `services/forms.py`, because a modal hands back only strings.
+  Every reader answers "I could not read that" with `None` or an error *string* rather
+  than raising: a form is filled in by hand, and a typo has to produce a sentence
+  naming the field, not a traceback. `read_optional_int` returns three things on
+  purpose — value, None for empty, message for wrong — since "not filled in" and
+  "filled in wrongly" are different outcomes.
+- **The `-` sentinel means nothing inside a form.** In a form every field is visible,
+  so an empty box already says "empty this" unambiguously; `-` only exists on the slash
+  path, where "not given" and "make empty" are otherwise indistinguishable.
+- `cogs/triggers.py:_validate()` is shared by the form and the slash command rather
+  than duplicated. Two copies of these rules would drift, and the copy that drifts is
+  the one nobody is testing.
+- Every modal defines `on_error`. `CommandTree.on_error` does not cover modal submits,
+  so without it a raising form shows Discord's own blank failure, which names neither
+  the field nor the reason.
+- Discord caps a modal at **5 text inputs**, a title and a label at 45 characters, and
+  a placeholder at 100. The trigger form uses all five. Frequency, day and date are
+  deliberately absent from the reminder form for the same reason they are absent from
+  `/reminder edit`: validating those combinations lives in `add_cmd`.
+- The reminder form offers one yes/no for pinging, so a reminder that pinged `@here`
+  keeps pinging as `@everyone` if saved through the form. Anyone who needs that
+  distinction has the slash command, which still carries all three choices.
+
 ## Command help text
 
 `description=` on a command and each `app_commands.describe` string are what Discord shows while someone is typing, and **Discord caps both at 100 characters** — the API rejects the whole sync if any is longer, which takes down every command, not just the offending one. **Command, subcommand and parameter names are English; every description, choice label and reply is Dutch.** That split is the convention here — `add`/`list`/`remove`/`edit` are what Discord users expect to type, while everything read on screen is in the team's language. Do not add a Dutch command name.

@@ -20,6 +20,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from services.forms import read_bool, read_channel
 from services.variants import pick_variant
 
 TZ = ZoneInfo("Europe/Amsterdam")
@@ -270,7 +271,7 @@ class RemindersCog(commands.Cog):
     @reminder.command(name="edit", description="Pas tekst, tijd, kanaal of mention aan zonder de herinnering opnieuw te maken")
     @app_commands.autocomplete(id=_reminder_choices)
     @app_commands.describe(
-        id="Kies de herinnering uit de lijst",
+        id="Kies de herinnering. Vul verder niets in voor een invulvenster",
         message="Nieuwe tekst. Varianten scheiden met | zodat de bot afwisselt",
         time="Nieuwe tijd(en) als HH:MM. Meerdere per dag met komma's: 09:00, 13:00, 17:00",
         channel="Verplaats de herinnering naar een ander kanaal",
@@ -300,6 +301,12 @@ class RemindersCog(commands.Cog):
             )
             return
 
+        # Only the ID given: open the form with the current values filled in.
+        # Naming any other option keeps the one-line path.
+        if all(v is None for v in (message, time, channel, mention)):
+            await interaction.response.send_modal(ReminderForm(self, existing))
+            return
+
         times = None
         if time is not None:
             times = _parse_times(time)
@@ -325,14 +332,19 @@ class RemindersCog(commands.Cog):
             mention=mention.value if mention else None,
         )
 
-        updated = self.reminders.get(interaction.guild_id, id)
+        await interaction.response.send_message(
+            self._summary(interaction.guild_id, id), ephemeral=True
+        )
+
+    def _summary(self, guild_id: int, reminder_id: int) -> str:
+        """When and where this reminder now fires, in one line."""
+        updated = self.reminders.get(guild_id, reminder_id)
         channel = self.bot.get_channel(updated.channel_id)
         where = channel.mention if channel else f"kanaal {updated.channel_id}"
-        await interaction.response.send_message(
-            f"✏️ Herinnering **#{id}** aangepast: "
+        return (
+            f"✏️ Herinnering **#{reminder_id}** aangepast: "
             f"{self._describe(updated.frequency, updated.day, updated.date)} om "
-            f"**{_format_times(updated.time)}** in {where} — \"{updated.message}\"",
-            ephemeral=True,
+            f"**{_format_times(updated.time)}** in {where} — \"{updated.message}\""
         )
 
     @reminder.command(name="list", description="Toon alle herinneringen met hun ID, tijden en kanaal")
@@ -380,6 +392,111 @@ class RemindersCog(commands.Cog):
         if frequency == "once" and date:
             return f"eenmalig op {datetime.strptime(date, '%Y-%m-%d').strftime('%d-%m-%Y')}"
         return frequency
+
+
+
+class ReminderForm(discord.ui.Modal):
+    """The edit screen for one reminder, pre-filled with what it holds now.
+
+    Frequency, day and date are absent on purpose, exactly as in the slash
+    command: validating those combinations lives in `add_cmd`, and a second copy
+    here would drift. Removing and re-adding stays the honest path for those.
+    """
+
+    def __init__(self, cog: "RemindersCog", rem) -> None:
+        super().__init__(title=f"Herinnering #{rem.id} aanpassen")
+        self.cog = cog
+        self.reminder_id = rem.id
+
+        self.message = discord.ui.TextInput(
+            label="Tekst",
+            style=discord.TextStyle.paragraph,
+            default=rem.message,
+            placeholder="Varianten scheiden met | zodat de bot afwisselt",
+            max_length=1800,
+        )
+        self.time = discord.ui.TextInput(
+            label="Tijd(en) als HH:MM",
+            default=_format_times(rem.time),
+            placeholder="09:00, 13:00, 17:00",
+            max_length=200,
+        )
+        self.mention = discord.ui.TextInput(
+            label="Iedereen pingen? ja / nee",
+            default="ja" if rem.mention != "none" else "nee",
+            required=False,
+            max_length=10,
+        )
+        self.channel = discord.ui.TextInput(
+            label="Kanaal (leeg = laten staan)",
+            placeholder="Plak het kanaal of vul het ID in",
+            required=False,
+            max_length=40,
+        )
+        for field in (self.message, self.time, self.mention, self.channel):
+            self.add_item(field)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        times = _parse_times(self.time.value)
+        if times is None:
+            await interaction.response.send_message(
+                "🚫 Ongeldige tijd. Gebruik HH:MM, meerdere gescheiden door komma's.",
+                ephemeral=True,
+            )
+            return
+
+        ping = read_bool(self.mention.value, default=True)
+        if ping is None:
+            await interaction.response.send_message(
+                f"🚫 Vul bij pingen `ja` of `nee` in, niet `{self.mention.value[:30]}`.",
+                ephemeral=True,
+            )
+            return
+
+        channel_id = read_channel(self.channel.value)
+        if isinstance(channel_id, str):
+            await interaction.response.send_message(f"🚫 Kanaal: {channel_id}", ephemeral=True)
+            return
+
+        if not self.message.value.strip():
+            await interaction.response.send_message(
+                "🚫 De tekst mag niet leeg zijn.", ephemeral=True
+            )
+            return
+
+        # "everyone" rather than the stored value: the form offers one yes/no, so
+        # a reminder that pinged @here keeps pinging, just as @everyone. Anyone
+        # who needs the distinction has the slash command.
+        existing = self.cog.reminders.get(interaction.guild_id, self.reminder_id)
+        if existing is None:
+            await interaction.response.send_message(
+                f"🚫 Herinnering **#{self.reminder_id}** bestaat niet meer.", ephemeral=True
+            )
+            return
+        if ping:
+            mention = existing.mention if existing.mention != "none" else "everyone"
+        else:
+            mention = "none"
+
+        self.cog.reminders.update(
+            interaction.guild_id,
+            self.reminder_id,
+            message=self.message.value.strip(),
+            time=times,
+            channel_id=channel_id,
+            mention=mention,
+        )
+        await interaction.response.send_message(
+            self.cog._summary(interaction.guild_id, self.reminder_id), ephemeral=True
+        )
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        log.exception("Reminder form failed")
+        message = f"⚠️ Opslaan mislukt: {type(error).__name__}: {error}"[:400]
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
