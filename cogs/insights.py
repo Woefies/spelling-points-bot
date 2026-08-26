@@ -13,6 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from services.backup import backup_dir_for
+from services.testmode import isolated, test_channel_id
 
 log = logging.getLogger(__name__)
 
@@ -123,6 +124,25 @@ class InsightsCog(commands.Cog):
             inline=True,
         )
         embed.add_field(name="Laatste back-up", value=last_backup, inline=False)
+
+        # Reported here on purpose: an isolated bot looks broken from every
+        # other channel, and this is the first place anyone looks.
+        config = self.bot.repo.config_for(interaction.guild_id)
+        channel_id = test_channel_id(config)
+        if channel_id is not None:
+            embed.add_field(
+                name="🧪 Testmodus",
+                value=(
+                    f"Testkanaal <#{channel_id}> — daar telt niets mee."
+                    + (
+                        "\n**De bot reageert nergens anders.** Uit met "
+                        "`/test isolate enabled:False`."
+                        if isolated(config)
+                        else ""
+                    )
+                ),
+                inline=False,
+            )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

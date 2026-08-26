@@ -1,5 +1,7 @@
 """Spelling-tally cog: listens for messages, detects mistakes, and tallies points."""
 
+import logging
+
 import discord
 from discord.ext import commands
 
@@ -8,6 +10,9 @@ from services.detector import detect
 from services.checkers import REGISTRY
 from services.guild_settings import resolve
 from services.lexicon import SKIP_WORDS
+from services.testmode import MARKER, MUTED, TEST, state_for
+
+log = logging.getLogger(__name__)
 
 
 class SpellingCog(commands.Cog):
@@ -27,7 +32,12 @@ class SpellingCog(commands.Cog):
 
         # One read per message, merged over the .env defaults — a server can dial
         # the checker down without anyone touching the host.
-        conf = resolve(self.bot.repo.config_for(message.guild.id), self.bot.settings)
+        stored = self.bot.repo.config_for(message.guild.id)
+        conf = resolve(stored, self.bot.settings)
+
+        where = state_for(stored, message.channel)
+        if where == MUTED:
+            return
 
         lang = detect(cleaned, conf["min_words_for_detect"])
         if lang is None:
@@ -51,6 +61,26 @@ class SpellingCog(commands.Cog):
             return
 
         points = len(all_issues) * conf["points_per_mistake"]
+        words = ", ".join(f"`{i.word}`" for i in all_issues[:10])
+
+        if where == TEST:
+            # Show the full result and store none of it. The reply goes out even
+            # when reply_on_mistake is off, because seeing what was flagged is
+            # the entire reason the sandbox exists.
+            try:
+                await message.add_reaction("❌")
+            except discord.HTTPException:
+                pass
+            try:
+                await message.reply(
+                    f"🔤 {len(all_issues)} fout(en) [{lang}]: {words} · "
+                    f"zou +{points} punt(en) zijn\n{MARKER}",
+                    mention_author=False,
+                )
+            except discord.HTTPException:
+                log.warning("Could not reply in test channel %s", message.channel.id)
+            return
+
         self.bot.repo.add_points(message.guild.id, message.author.id, points)
         for iss in all_issues:
             self.bot.repo.log_issue(message.guild.id, message.author.id, iss.word, iss.lang, iss.kind)
@@ -66,7 +96,6 @@ class SpellingCog(commands.Cog):
 
         if conf["reply_on_mistake"]:
             total = self.bot.repo.get_score(message.guild.id, message.author.id)
-            words = ", ".join(f"`{i.word}`" for i in all_issues[:10])
             await message.reply(
                 f"🔤 {len(all_issues)} mistake(s) [{lang}]: {words} · +{points} pts (total {total})",
                 mention_author=False,

@@ -128,6 +128,43 @@ de server. Zet je `/ai context send_message:True` aan, dan wordt het bericht zel
 meegestuurd naar Anthropic — betere antwoorden, maar berichten verlaten dan wel de
 server. Die keuze is bewust een aparte handeling.
 
+## Testkanaal
+
+Wil je een nieuwe trigger, een andere persona of een strengere drempel uitproberen
+zonder dat je collega's er last van hebben? Wijs een testkanaal aan.
+
+| Commando | Wat het doet |
+|---|---|
+| `/test channel channel:#bot-test` | Maakt dit kanaal het testkanaal |
+| `/test isolate enabled:True` | De bot reageert tijdelijk **alleen** nog daar |
+| `/test off` | Testmodus helemaal uit |
+| `/test status` | Toont welk kanaal het is en of isolate aanstaat |
+
+In het testkanaal doet de bot **precies wat hij anders ook zou doen** — kruisje,
+antwoord, triggers, emoji, AI — maar er wordt niets van opgeslagen. Geen punten,
+geen trigger-teller, geen mute. Onder elk antwoord staat een regel die dat zegt.
+
+**Voorbeeld.**
+
+```
+/test channel channel: #bot-test
+🧪 Testkanaal staat op #bot-test.
+
+(in #bot-test) dit is een berichtt met een fout
+🔤 1 fout(en) [nl]: `berichtt` · zou +1 punt(en) zijn
+🧪 Testkanaal — niets hiervan is opgeslagen.
+```
+
+Draagt de trigger die je test een straf, dan zegt de bot erbij hoe lang hij zou
+dempen — zonder iemand te dempen.
+
+**Isolate** is er voor als je even rustig wilt sleutelen: de bot laat alle andere
+kanalen met rust tot je hem uitzet. Let op dat je dat ook doet — zolang isolate
+aanstaat worden er nergens fouten geteld. `/status` zegt het er nadrukkelijk bij,
+en `/test isolate enabled:False` zet het terug.
+
+Reminders blijven gewoon versturen, ook tijdens isolate. Die staan er los van.
+
 ## Rustig aan met commando's
 
 Meer dan 5 commando's binnen 15 seconden en de bot vraagt je even te wachten.

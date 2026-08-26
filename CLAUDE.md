@@ -158,6 +158,39 @@ returns `None`: an older image without the package loads and runs, it just never
 generates. Without `ANTHROPIC_API_KEY` in `.env` on the host, `/ai enable` refuses and
 says so, rather than switching on something that will silently never work.
 
+## Test mode (`cogs/testmode.py` + `services/testmode.py`)
+
+`/test channel` designates one channel as a sandbox. Every listener resolves one of
+three states per message via `state_for()`: `LIVE` (normal), `TEST` (the bot reacts
+exactly as it would and records nothing — no points, no `issues_log` row, no
+`trigger_hits` row, no timeout dispatched) and `MUTED` (isolate mode is on and this
+is not the sandbox, so the bot stays out).
+
+**Everything here fails open.** An unset, unparseable or half-configured value
+resolves to `LIVE`, and `isolated()` returns False when `test_isolate` is set but
+`test_channel` is not. Silencing the bot must be something someone chose, never
+something a hand-edited or restored database did by accident — and `/test isolate`
+refuses to turn on without a channel, because that state has nowhere left to switch
+it back off from.
+
+Threads are part of the sandbox: `state_for()` checks `channel.parent_id` as well as
+`channel.id`, so a thread started in the test channel is not a live channel of its own.
+
+`cogs/spelling.py` reads it off the `config_for()` dict it already fetches, so test
+mode costs no extra query on the message path; `cogs/triggers.py` needs its own read.
+In `TEST` the spelling reply is sent **even when `reply_on_mistake` is off** — seeing
+what got flagged is the whole point of the sandbox — and both cogs append
+`testmode.MARKER` so a sandbox reply can never be mistaken for one that counted.
+
+`cogs/punishment.py` is untouched: neither `mistakes_recorded` nor `trigger_punishment`
+is dispatched from the sandbox, so there is nothing for it to suppress.
+
+Reminders, the daily summary and backups all keep running normally under isolate —
+they are scheduled and target their own channels, and silencing them would be the
+"quietly broken" failure this project keeps guarding against. `/status` reports an
+active test channel and, louder, an active isolate: an isolated bot looks broken from
+every other channel, and `/status` is the first place anyone looks.
+
 ## Rate limiting
 
 `RateLimitedTree` in `core/bot.py` puts one shared cooldown (5 uses / 15 s / user) in front of every slash command via `interaction_check`, rather than a decorator per command that a new cog could forget. It lets non-application-command interactions through untouched — autocomplete fires on every keystroke and must never be throttled.

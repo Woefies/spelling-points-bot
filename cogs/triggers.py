@@ -15,6 +15,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from services.punishment import format_minutes, render
+from services.testmode import MARKER, MUTED, TEST, state_for
 from services.variants import compile_phrases, pick_variant, split_variants
 
 log = logging.getLogger(__name__)
@@ -32,12 +33,18 @@ class TriggersCog(commands.Cog):
         if message.author.bot or message.guild is None:
             return
 
+        where = state_for(self.bot.repo.config_for(message.guild.id), message.channel)
+        if where == MUTED:
+            return
+        testing = where == TEST
+
         replied = False
         for trig in self.bot.repo.list_triggers(message.guild.id):
             if not compile_phrases(trig.pattern).search(message.content):
                 continue
 
-            self.bot.repo.log_trigger_hit(message.guild.id, trig.id, message.author.id)
+            if not testing:
+                self.bot.repo.log_trigger_hit(message.guild.id, trig.id, message.author.id)
 
             for emoji in _reaction_list(trig.reactions):
                 try:
@@ -70,6 +77,13 @@ class TriggersCog(commands.Cog):
                     )
                     if generated:
                         text = f"{message.author.mention} {generated}"
+
+                if testing:
+                    # Say what the trigger would have cost, since the timeout
+                    # itself is exactly what the sandbox is holding back.
+                    if trig.punish_minutes:
+                        text += f"\n_(zou {format_minutes(trig.punish_minutes)} dempen)_"
+                    text += f"\n{MARKER}"
                 try:
                     # A trigger that mutes has to be allowed to address the person;
                     # one that only jokes should never ping.
@@ -83,7 +97,7 @@ class TriggersCog(commands.Cog):
                 except discord.HTTPException:
                     log.warning("Could not reply for trigger %d", trig.id)
 
-            if trig.punish_minutes:
+            if trig.punish_minutes and not testing:
                 # The punishment cog owns every timeout, so /punish mode stays the
                 # single switch that governs whether anyone actually gets muted.
                 self.bot.dispatch("trigger_punishment", message, trig)
