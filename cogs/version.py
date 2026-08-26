@@ -130,20 +130,21 @@ class VersionCog(commands.Cog):
 
         if latest is None:
             await ctx.reply(
-                f"Running **v{running}**. ⚠️ Couldn't reach GitHub to check for updates.",
+                f"Ik draai op **v{running}**. ⚠️ GitHub is niet bereikbaar, dus ik kan niet "
+                f"controleren of er een nieuwere versie is.",
                 mention_author=False,
             )
             return
 
         if running == latest:
             await ctx.reply(
-                f"✅ Up to date — running **v{running}** (latest on GitHub).",
+                f"✅ Bij de tijd — ik draai op **v{running}**, de nieuwste op GitHub.",
                 mention_author=False,
             )
         else:
             await ctx.reply(
-                f"⚠️ Update available — running **v{running}**, latest is **v{latest}**. "
-                f"Pull and rebuild to update.",
+                f"⚠️ Er staat een nieuwe versie klaar — ik draai op **v{running}**, de nieuwste "
+                f"is **v{latest}**.\n_Bijwerken kan met `/update now`._",
                 mention_author=False,
             )
 

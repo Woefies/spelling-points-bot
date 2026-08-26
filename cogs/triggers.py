@@ -14,12 +14,15 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from services.evasion import near_misses, obfuscations
 from services.punishment import format_minutes, render
+from services.testmode import MARKER, MUTED, TEST, state_for
 from services.variants import compile_phrases, pick_variant, split_variants
 
 log = logging.getLogger(__name__)
 
 CLEAR = "-"  # sentinel in /trigger edit meaning "empty this field"
+CONFIG_OBFUSCATION = "trigger_obfuscation"
 FALLBACK_RESPONSE = "{user} — let op je woorden."
 MAX_LENGTH = 2000  # Discord's per-message limit, applied per | variant
 
@@ -32,12 +35,22 @@ class TriggersCog(commands.Cog):
         if message.author.bot or message.guild is None:
             return
 
+        config = self.bot.repo.config_for(message.guild.id)
+        where = state_for(config, message.channel)
+        if where == MUTED:
+            return
+        testing = where == TEST
+
         replied = False
         for trig in self.bot.repo.list_triggers(message.guild.id):
+            dodge = None
             if not compile_phrases(trig.pattern).search(message.content):
-                continue
+                dodge = await self._dodge(message, trig, config)
+                if dodge is None:
+                    continue
 
-            self.bot.repo.log_trigger_hit(message.guild.id, trig.id, message.author.id)
+            if not testing:
+                self.bot.repo.log_trigger_hit(message.guild.id, trig.id, message.author.id)
 
             for emoji in _reaction_list(trig.reactions):
                 try:
@@ -70,6 +83,18 @@ class TriggersCog(commands.Cog):
                     )
                     if generated:
                         text = f"{message.author.mention} {generated}"
+
+                if dodge:
+                    # Name the word. Someone muted for a word they did not
+                    # literally type deserves to see what was read into it.
+                    text += f"\n_(`{dodge}` gelezen als omzeiling van `{trig.pattern.split('|')[0]}`)_"
+
+                if testing:
+                    # Say what the trigger would have cost, since the timeout
+                    # itself is exactly what the sandbox is holding back.
+                    if trig.punish_minutes:
+                        text += f"\n_(zou {format_minutes(trig.punish_minutes)} dempen)_"
+                    text += f"\n{MARKER}"
                 try:
                     # A trigger that mutes has to be allowed to address the person;
                     # one that only jokes should never ping.
@@ -83,10 +108,72 @@ class TriggersCog(commands.Cog):
                 except discord.HTTPException:
                     log.warning("Could not reply for trigger %d", trig.id)
 
-            if trig.punish_minutes:
+            if trig.punish_minutes and not testing:
                 # The punishment cog owns every timeout, so /punish mode stays the
                 # single switch that governs whether anyone actually gets muted.
                 self.bot.dispatch("trigger_punishment", message, trig)
+
+    # -------------------------------------------------------------- evasion
+
+    async def _dodge(self, message: discord.Message, trig, config: dict) -> str | None:
+        """The word this message used to dodge `trig`, if any.
+
+        Two tiers, cheapest first. The free one is deterministic and offline; the
+        paid one only ever sees words the free one could not settle, that the
+        dictionaries do not recognise, and that nobody whitelisted.
+        """
+        if config.get(CONFIG_OBFUSCATION) == "1":
+            hits = obfuscations(message.content, trig.pattern)
+            if hits:
+                return hits[0]
+
+        # Per trigger, and only then per guild. A trigger nobody opted in stays
+        # a plain word-boundary match however the guild has AI configured.
+        if not trig.watch_evasion:
+            return None
+
+        ai = self.bot.get_cog("AICog")
+        if ai is None or not ai.evasion_on(message.guild.id):
+            return None
+
+        skip = {w.lower() for w in self.bot.repo.get_whitelist(message.guild.id)}
+        # Per guild, via /ai limits: without a ceiling here a single long message
+        # could spend a whole day's budget by itself.
+        limit = ai.candidates(message.guild.id)
+        for word in near_misses(message.content, trig.pattern, skip)[:limit]:
+            if self._is_real_word(word):
+                continue
+            if await ai.evasion_for(message.guild.id, trig.pattern, word, message.content):
+                return word
+        return None
+
+    def _watch_note(self, guild_id: int) -> str:
+        """Say plainly whether watching this trigger does anything yet.
+
+        Two switches have to line up — this trigger, and /ai evasion for the
+        guild — so the half that is still off names itself here rather than
+        being discovered later as "the bot just does not react to it".
+        """
+        ai = self.bot.get_cog("AICog")
+        if ai is not None and ai.evasion_on(guild_id):
+            return "👁️ De AI beoordeelt verdraaide schrijfwijzen van dit woord."
+        return (
+            "👁️ Genoteerd, maar er gebeurt nog niets: `/ai evasion` staat uit. "
+            "Zet die aan om dit te laten werken."
+        )
+
+    def _is_real_word(self, word: str) -> bool:
+        """Dictionary check, and never a reason to abort on failure."""
+        from services.checkers import REGISTRY
+
+        checker = REGISTRY.get("spelling")
+        if checker is None:
+            return False
+        try:
+            return checker.knows(word, {"hunspell_dir": self.bot.settings.hunspell_dir})
+        except Exception:
+            log.exception("Dictionary lookup failed for %r", word)
+            return False
 
     # --------------------------------------------------------- autocomplete
 
@@ -99,6 +186,8 @@ class TriggersCog(commands.Cog):
             what = trig.reactions or (trig.response or "").split("|")[0].strip()
             if trig.punish_minutes:
                 what = f"⏱️{trig.punish_minutes}m {what}".strip()
+            if trig.watch_evasion:
+                what = f"👁️ {what}".strip()
             label = f"#{trig.id} · {trig.pattern} → {what}"
             if len(label) > 100:
                 label = label[:97] + "..."
@@ -122,6 +211,7 @@ class TriggersCog(commands.Cog):
         response="Wat de bot terugzegt. Varianten met | zodat hij afwisselt. Leeg = niets zeggen",
         reactions="Emoji onder het bericht, gescheiden door kommas. Bijvoorbeeld: 👎,❌",
         minutes="Timeout in minuten bij dit woord. Leeg laten voor geen straf",
+        watch="Laat de AI ook verdraaide schrijfwijzen hiervan opsporen. Standaard uit",
     )
     async def add_cmd(
         self,
@@ -130,6 +220,7 @@ class TriggersCog(commands.Cog):
         response: str | None = None,
         reactions: str | None = None,
         minutes: app_commands.Range[int, 1, 1440] | None = None,
+        watch: bool = False,
     ) -> None:
         if not response and not reactions and not minutes:
             await interaction.response.send_message(
@@ -157,9 +248,11 @@ class TriggersCog(commands.Cog):
             return
 
         trigger_id = self.bot.repo.add_trigger(
-            interaction.guild_id, words, response, reactions, minutes
+            interaction.guild_id, words, response, reactions, minutes, watch
         )
         tail = f"\n⚠️ Dempt **{format_minutes(minutes)}** — {_punish_note(self.bot, interaction.guild_id)}" if minutes else ""
+        if watch:
+            tail += "\n" + self._watch_note(interaction.guild_id)
         await interaction.response.send_message(
             f"✅ Trigger **#{trigger_id}** aangemaakt op: `{words}`{tail}",
             ephemeral=True,
@@ -173,6 +266,7 @@ class TriggersCog(commands.Cog):
         response="Nieuw antwoord, varianten met |. Typ een - om het antwoord te wissen",
         reactions="Nieuwe emoji, gescheiden door kommas. Typ een - om ze te wissen",
         minutes="Timeout in minuten. Typ 0 om de straf te verwijderen",
+        watch="Of de AI verdraaide schrijfwijzen van dit woord mag opsporen",
     )
     async def edit_cmd(
         self,
@@ -182,6 +276,7 @@ class TriggersCog(commands.Cog):
         response: str | None = None,
         reactions: str | None = None,
         minutes: app_commands.Range[int, 0, 1440] | None = None,
+        watch: bool | None = None,
     ) -> None:
         existing = self.bot.repo.get_trigger(interaction.guild_id, id)
         if existing is None:
@@ -203,6 +298,8 @@ class TriggersCog(commands.Cog):
             # 0 rather than "-" here: the field is numeric, so a sentinel string
             # would not survive Discord's own validation.
             changes["punish_minutes"] = minutes or None
+        if watch is not None:
+            changes["watch_evasion"] = 1 if watch else 0
 
         if not changes:
             await interaction.response.send_message(
@@ -245,10 +342,33 @@ class TriggersCog(commands.Cog):
             does.append(f"{len(updated.response.split('|'))} antwoordvariant(en)")
         if updated.punish_minutes:
             does.append(f"dempt {format_minutes(updated.punish_minutes)}")
+        if updated.watch_evasion:
+            does.append("AI let op omzeiling")
+        tail = "\n" + self._watch_note(interaction.guild_id) if updated.watch_evasion else ""
         await interaction.response.send_message(
-            f"✏️ Trigger **#{id}** aangepast: `{updated.pattern}` · " + " · ".join(does),
+            f"✏️ Trigger **#{id}** aangepast: `{updated.pattern}` · " + " · ".join(does) + tail,
             ephemeral=True,
         )
+
+    @trigger.command(name="obfuscation", description="Ook reageren op verdraaide schrijfwijzen zoals br3nt")
+    @app_commands.describe(
+        enabled="Aan vangt cijfers voor letters, herhaalde letters en b r e n t. Geen AI nodig"
+    )
+    async def obfuscation_cmd(self, interaction: discord.Interaction, enabled: bool) -> None:
+        self.bot.repo.set_config(
+            interaction.guild_id, CONFIG_OBFUSCATION, "1" if enabled else None
+        )
+        if enabled:
+            text = (
+                "✅ Verdraaide schrijfwijzen tellen mee. `br3nt`, `brenttt`, `b r e n t` "
+                "en `b-r-e-n-t` gelden nu als een gewone treffer.\n"
+                "_Dit is een vaste regel, geen AI: het woord moet na normaliseren "
+                "letterlijk hetzelfde zijn. Voor gevallen als `brentify` is "
+                "`/ai evasion` nodig._"
+            )
+        else:
+            text = "🛑 Alleen exacte treffers tellen weer."
+        await interaction.response.send_message(text, ephemeral=True)
 
     @trigger.command(name="list", description="Toon alle triggers met hun ID, woorden en reacties")
     async def list_cmd(self, interaction: discord.Interaction) -> None:
@@ -271,8 +391,12 @@ class TriggersCog(commands.Cog):
                 parts.append(f"{count} antwoordvariant(en)")
             if trig.punish_minutes:
                 parts.append(f"⏱️ dempt {format_minutes(trig.punish_minutes)}")
+            if trig.watch_evasion:
+                parts.append("👁️ AI let op omzeiling")
             lines.append(" · ".join(parts))
         embed.description = "\n".join(lines)
+        if any(t.watch_evasion for t in rows):
+            embed.set_footer(text="👁️ = de AI beoordeelt ook verdraaide schrijfwijzen")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @trigger.command(name="remove", description="Verwijder een trigger. Kies hem uit de lijst")

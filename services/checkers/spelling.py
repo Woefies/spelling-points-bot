@@ -28,6 +28,16 @@ class SpellingChecker(Checker):
             ", ".join(f"{lang}={name}" for lang, name in sorted(backends.items())) or "none",
         )
 
+    def knows(self, word: str, ctx=None) -> bool:
+        """True if any loaded dictionary recognises this word.
+
+        Public because the evasion check needs it too: a word the dictionaries
+        already know is a real word, not somebody dodging a trigger, and asking a
+        model about it would cost money to be told the obvious.
+        """
+        self._ensure_loaded(ctx or {})
+        return any(known(word.lower()) for known in self._lookups.values())
+
     async def check(self, text, lang, ctx) -> CheckResult:
         self._ensure_loaded(ctx)
         if lang not in self._lookups:

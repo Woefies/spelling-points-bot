@@ -112,6 +112,57 @@ A trigger carrying `punish_minutes` dispatches `trigger_punishment` to the same 
 
 `trigger_hits` records who set off which trigger, feeding `{count}` in trigger responses. It is a separate table rather than a `kind` in `issues_log` on purpose — the daily summary, `/flagged` and the punishment counter all read that log, and trigger hits are not spelling mistakes. Timeouts need **Moderate Members** and the bot's role above the target's; Discord refuses to time out admins and the owner at all, which is reported in-channel rather than swallowed.
 
+## Trigger evasion (`services/evasion.py`)
+
+`compile_phrases` matches on exact word boundaries, which is what keeps a trigger off
+`kankeren` and `borstkanker`. The price is that one changed character dodges it, so
+there are two tiers, and they are separate because they fail differently.
+
+**Tier 1, `obfuscations()` — deterministic, offline, free.** Digits standing in for
+letters, repeated letters, separators pushed between them: `br3nt`, `brenttt`,
+`b r e n t`, `b-r-e-n-t`. After `normalize()` these are *identical* to the trigger, so
+no judgement is involved. Behind `/trigger obfuscation`, and it works with AI off.
+
+Two guards make that tier safe, and both were bugs before they were guards:
+
+- `normalize()` collapses runs of a letter, symmetrically on both sides — which on its
+  own makes `kr` indistinguishable from the trigger `kkr`. So a word is only accepted
+  when its `core()` (letters, leet-mapped, runs **kept**) is at least as long as the
+  trigger's: a dodge dresses a word up, it never shortens it.
+- `spaced_pattern()` is built from the phrase's own letters, not its normalised form.
+  Built from the normalised form, `kkr` degrades to `k?r` and fires on any stray "kr".
+
+**Tier 2, `near_misses()` — candidates only, never a verdict.** A different word built
+around the trigger (`brentify`, `brentje`, `superbrent`) or one edit away (`brant`).
+Whether that is a dodge depends on what the trigger means, so a model decides — see
+below. The "built around" rule compares
+**cores**, not normalised forms: collapsing turns the trigger `kkr` into `kr`, which
+sits inside `kroket` and every other ordinary word with those letters in that order.
+The one-edit rule uses the normalised form, where it is meant to catch a near-miss
+spelling rather than an addition. Cores under `MIN_CORE_LENGTH` are excluded entirely.
+
+**Tier 2 is opted into per trigger**, via the `watch_evasion` column (`/trigger add|edit
+watch:`), and off for every existing row. Watching a joke trigger is wasted budget;
+watching one that mutes is a decision to make once, deliberately, for that trigger.
+Tier 1 stays guild-wide — it is free, deterministic, and claims only that a word *is*
+the trigger word.
+
+Two switches therefore have to line up, which is a discoverability trap, so both ends
+name the missing half: `/trigger … watch:True` says so when `/ai evasion` is off, and
+`/ai evasion enabled:True` says so when no trigger is watched. Neither reports success
+into a void.
+
+`cogs/triggers.py:_dodge()` runs them cheapest-first and the paid tier only ever sees
+words on a watched trigger that tier 1 could not settle, that the dictionaries do not
+recognise (`SpellingChecker.knows()`, public for exactly this), and that nobody
+whitelisted — a word an admin has whitelisted must be fine for every checker.
+`MAX_CANDIDATES` caps how many words one message can send to the model.
+
+A dodge is a normal trigger hit from there on: it logs, it replies, and it dispatches
+`trigger_punishment` through the punishment cog, so **`/punish mode` still governs
+every timeout**. The reply names the word it read as a dodge — someone muted for a word
+they did not literally type has to be able to see what was read into it.
+
 ## AI-generated trigger replies (`cogs/ai.py` + `services/ai.py`)
 
 Off by default, per guild, and only for triggers. When on, `cogs/triggers.py` asks
@@ -129,9 +180,16 @@ is the only place that reads `ANTHROPIC_API_KEY`. Three guards, in this order:
    `ai_usage` = `"YYYY-MM-DD:count"`. A different date resets it, so no cron job is
    needed. The counter is incremented **before** the call, not after — a budget that
    only counts successes cannot stop a loop that is failing.
-2. **A 5-second timeout**, both on the client and as an outer `asyncio.wait_for`. A
-   late joke is worse than an instant static one.
+2. **A timeout** (default 5s, `/ai limits`), both on the client and as an outer
+   `asyncio.wait_for`. A late joke is worse than an instant static one.
 3. **Fallback to the stored text** on any exception at all.
+
+**All three limits are per-guild and set from Discord** — budget, timeout, and how many
+words one message may send to the model (`ai_candidates`, default 3, the ceiling that
+stops one long message spending a day's budget). Same reasoning as the reminder texts
+and the punishment ladder: tuning the thing that costs money must not need a redeploy
+by whoever runs the host. `clamp()` is applied **on read as well as on write**, so a
+hand-edited or restored database cannot put a nonsense timeout in front of the channel.
 
 The call sends `thinking={"type": "disabled"}` and `output_config={"effort": "low"}`:
 a one-liner needs no deliberation, and every second spent thinking is a second the
@@ -149,14 +207,69 @@ holding no text in the code. `GUARDRAILS` is appended to whatever the admin wrot
 (Dutch, max two sentences, no invented facts), so the guards do not depend on the
 persona author remembering them.
 
-`/ai test` deliberately bypasses the enabled check — the persona has to be tunable
+**Two features, two switches** (`ai_replies`, `ai_evasion`), not one master flag.
+Writing a joke and deciding that someone dodged a filter are different powers, and a
+guild that wants the first must not silently get the second. `/ai off` clears both.
+
+`AICog.evasion_for()` returns **False on every uncertain path** — feature off, no key,
+budget spent, call failed, answer unreadable. `parse_verdict()` accepts only `JA`/`NEE`
+and returns None for anything else; the consequence of a True here is somebody being
+muted, so "I don't know" can only mean no. A None verdict is deliberately **not**
+cached: a non-answer is not a verdict, and storing it would turn one bad call into a
+permanent one.
+
+Verdicts that *are* answers land in `evasion_verdicts`, keyed on (guild, pattern, word).
+That is a cache and a review surface at once: the same dodge returns every day, a call
+costs money and a second of channel latency, and a verdict that changed its mind between
+two identical messages would be impossible to explain to the person on the receiving
+end. `/ai verdicts` lists them, `/ai forget` drops one so it is judged again.
+
+`build_judge_prompt()` deliberately does **not** carry the persona. A bot written to be
+sarcastic must not become a harsher judge because of it — the reply is a question of
+voice, the verdict is a question of fact.
+
+`/ai test` deliberately bypasses the on/off check — the persona has to be tunable
 before it is switched on for the channel — but it does spend budget, since it is a
 real call.
 
 `anthropic` is in `requirements.txt`, but `generate()` catches its `ImportError` and
 returns `None`: an older image without the package loads and runs, it just never
-generates. Without `ANTHROPIC_API_KEY` in `.env` on the host, `/ai enable` refuses and
+generates. Without `ANTHROPIC_API_KEY` in `.env` on the host, `/ai replies` and
+`/ai evasion` refuse to switch on and
 says so, rather than switching on something that will silently never work.
+
+## Test mode (`cogs/testmode.py` + `services/testmode.py`)
+
+`/test channel` designates one channel as a sandbox. Every listener resolves one of
+three states per message via `state_for()`: `LIVE` (normal), `TEST` (the bot reacts
+exactly as it would and records nothing — no points, no `issues_log` row, no
+`trigger_hits` row, no timeout dispatched) and `MUTED` (isolate mode is on and this
+is not the sandbox, so the bot stays out).
+
+**Everything here fails open.** An unset, unparseable or half-configured value
+resolves to `LIVE`, and `isolated()` returns False when `test_isolate` is set but
+`test_channel` is not. Silencing the bot must be something someone chose, never
+something a hand-edited or restored database did by accident — and `/test isolate`
+refuses to turn on without a channel, because that state has nowhere left to switch
+it back off from.
+
+Threads are part of the sandbox: `state_for()` checks `channel.parent_id` as well as
+`channel.id`, so a thread started in the test channel is not a live channel of its own.
+
+`cogs/spelling.py` reads it off the `config_for()` dict it already fetches, so test
+mode costs no extra query on the message path; `cogs/triggers.py` needs its own read.
+In `TEST` the spelling reply is sent **even when `reply_on_mistake` is off** — seeing
+what got flagged is the whole point of the sandbox — and both cogs append
+`testmode.MARKER` so a sandbox reply can never be mistaken for one that counted.
+
+`cogs/punishment.py` is untouched: neither `mistakes_recorded` nor `trigger_punishment`
+is dispatched from the sandbox, so there is nothing for it to suppress.
+
+Reminders, the daily summary and backups all keep running normally under isolate —
+they are scheduled and target their own channels, and silencing them would be the
+"quietly broken" failure this project keeps guarding against. `/status` reports an
+active test channel and, louder, an active isolate: an isolated bot looks broken from
+every other channel, and `/status` is the first place anyone looks.
 
 ## Rate limiting
 
@@ -199,7 +312,7 @@ Triggers and config live on `SqliteScoreRepository` rather than in a repo of the
 ## Conventions
 
 - Config flows one way: `.env` → `load_settings()` → `Settings` dataclass → `bot.settings`. Read config off `bot.settings`, never `os.getenv` outside `core/config.py` (`scripts/` are standalone and exempt).
-- **Four of those settings are overridable per guild** — `points_per_mistake`, `reply_on_mistake`, `min_words_for_detect`, `skip_capitalized`. `services/guild_settings.resolve()` merges stored overrides over the `.env` defaults, and `cogs/spelling.py` reads the result rather than `bot.settings` directly. They live in `guild_config`, so `repo.config_for()` fetches them in one read — this runs on every message. A stored value that will not parse falls back to the default with a warning rather than raising: a restored or hand-edited database must not stop the checker. These four are the emergency brake (points to 0, replies off), which is exactly why they cannot stay behind shell access to the host.
+- **Five of those settings are overridable per guild** — `spelling_enabled`, `points_per_mistake`, `reply_on_mistake`, `min_words_for_detect`, `skip_capitalized`. `spelling_enabled` switches the whole checker off: a server that only wants triggers and reminders should not have to set points to 0 and hope nobody works out why the ❌ still appears. `services/guild_settings.resolve()` merges stored overrides over the `.env` defaults, and `cogs/spelling.py` reads the result rather than `bot.settings` directly. They live in `guild_config`, so `repo.config_for()` fetches them in one read — this runs on every message. A stored value that will not parse falls back to the default with a warning rather than raising: a restored or hand-edited database must not stop the checker. These are the emergency brake (points to 0, replies off), which is exactly why they cannot stay behind shell access to the host.
 - `/whitelist add|remove` take a comma-separated list, not a single word: the flagged-words report produces batches, and one command per word does not scale. `/whitelist remove` autocompletes from the guild's own entries — on a hybrid command that has to go through `@cmd.autocomplete("param")` rather than the `@app_commands.autocomplete` decorator. Its filter reads the text after the last comma, so suggestions keep working while typing a list.
 
 `Settings.whitelist` is a hardcoded default set merged with the DB whitelist at check time — global-ish defaults live in config, per-guild additions in DB. Genuinely-global slang belongs in `services/lexicon.py` instead.
