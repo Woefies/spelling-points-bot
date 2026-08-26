@@ -49,15 +49,27 @@ class TriggersCog(commands.Cog):
             # otherwise a single sentence can make the bot spam the channel.
             if trig.response and not replied:
                 replied = True
+                count = self.bot.repo.count_trigger_hits(
+                    message.guild.id, trig.id, message.author.id
+                )
                 text = render(
                     pick_variant(trig.response),
                     FALLBACK_RESPONSE,
                     user=message.author.mention,
-                    count=self.bot.repo.count_trigger_hits(
-                        message.guild.id, trig.id, message.author.id
-                    ),
+                    count=count,
                     minutes=format_minutes(trig.punish_minutes or 0),
                 )
+
+                # A generated line replaces the stored one only when the AI cog
+                # is loaded, switched on, in budget and actually answers. Every
+                # other path keeps the text above, so the bot never falls silent.
+                ai = self.bot.get_cog("AICog")
+                if ai is not None:
+                    generated = await ai.reply_for(
+                        message.guild.id, trig.pattern, count, message.content
+                    )
+                    if generated:
+                        text = f"{message.author.mention} {generated}"
                 try:
                     # A trigger that mutes has to be allowed to address the person;
                     # one that only jokes should never ping.

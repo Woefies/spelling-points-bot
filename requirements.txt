@@ -7,3 +7,6 @@ spylls>=0.1.7
 # database that cog fails to load — and since cogs load independently, that now
 # silently disables every reminder instead of crashing loudly.
 tzdata>=2024.1
+# Optional: only needed for AI-generated trigger replies (/ai enable).
+# The bot runs and falls back to stored texts without a key.
+anthropic>=0.60
