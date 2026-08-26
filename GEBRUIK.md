@@ -90,6 +90,44 @@ bot precies zegt. Daar is geen update van de bot voor nodig.
 De teksten mogen `{user}`, `{count}` en `{minutes}` bevatten. Bijvoorbeeld:
 `Hup {user}, {count} fouten. Even {minutes} stil.`
 
+## AI-antwoorden op triggers
+
+De bot kan zijn antwoord op een trigger zelf laten schrijven, in plaats van altijd
+dezelfde vaste tekst. Dit staat **standaard uit** en werkt alleen als er een
+Anthropic API-sleutel op de host staat.
+
+| Commando | Wat het doet |
+|---|---|
+| `/ai enable` | Zet AI-antwoorden aan |
+| `/ai disable` | Zet ze weer uit — terug naar de vaste teksten |
+| `/ai persona tekst:...` | Beschrijf hoe de bot moet klinken. Een `-` zet de standaard terug |
+| `/ai budget aantal:50` | Maximaal aantal AI-antwoorden per dag. `0` = uit |
+| `/ai context send_message:True` | Laat het model ook het bericht zelf zien |
+| `/ai test woord:thuiswerken` | Genereer nu één voorbeeldantwoord om je persona te testen |
+| `/ai status` | Staat het aan, hoeveel is er vandaag gebruikt, en welke persona geldt |
+
+**Voorbeeld.** Persona instellen en testen:
+
+```
+/ai persona tekst: Je bent een droge collega. Kort, nuchter, nooit meer dan twee zinnen.
+/ai test woord: thuiswerken
+🤖 Weer thuis? De koffie hier is anders ook niet slechter geworden.
+/ai enable
+✅ AI-antwoorden aan, maximaal 50 per dag.
+```
+
+**Uitzetten kan altijd,** met `/ai disable`. De vaste tekst van elke trigger blijft
+gewoon staan en wordt dan meteen weer gebruikt — je raakt niets kwijt. Datzelfde
+gebeurt vanzelf als het dagbudget op is, als het te lang duurt, of als er iets
+misgaat. De bot valt dan stil terug op de tekst die je zelf hebt ingevuld; je merkt
+er in het kanaal niets van.
+
+**Wat gaat er naar buiten?** Standaard alleen het trefwoord waar de trigger op let
+en hoeveel keer die persoon het gezegd heeft. De berichten van collega's blijven op
+de server. Zet je `/ai context send_message:True` aan, dan wordt het bericht zelf
+meegestuurd naar Anthropic — betere antwoorden, maar berichten verlaten dan wel de
+server. Die keuze is bewust een aparte handeling.
+
 ## Rustig aan met commando's
 
 Meer dan 5 commando's binnen 15 seconden en de bot vraagt je even te wachten.

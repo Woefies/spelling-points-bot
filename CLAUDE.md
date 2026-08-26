@@ -112,6 +112,52 @@ A trigger carrying `punish_minutes` dispatches `trigger_punishment` to the same 
 
 `trigger_hits` records who set off which trigger, feeding `{count}` in trigger responses. It is a separate table rather than a `kind` in `issues_log` on purpose — the daily summary, `/flagged` and the punishment counter all read that log, and trigger hits are not spelling mistakes. Timeouts need **Moderate Members** and the bot's role above the target's; Discord refuses to time out admins and the owner at all, which is reported in-channel rather than swallowed.
 
+## AI-generated trigger replies (`cogs/ai.py` + `services/ai.py`)
+
+Off by default, per guild, and only for triggers. When on, `cogs/triggers.py` asks
+`AICog.reply_for()` for a line before falling back to the trigger's stored `response`
+text — so the static text is never dead weight, it is the fallback that runs whenever
+the cog is absent, the feature is off, the key is missing, the budget is spent, the
+call times out, or the model refuses. **The bot must never go quiet because a network
+call went wrong**, which is why every failure path in `services.ai.generate()` returns
+`None` rather than raising.
+
+`services/ai.py` is the only place in the bot that talks to an external service, and it
+is the only place that reads `ANTHROPIC_API_KEY`. Three guards, in this order:
+
+1. **Per-day budget** (default 50, `/ai budget`), stored in `guild_config` as
+   `ai_usage` = `"YYYY-MM-DD:count"`. A different date resets it, so no cron job is
+   needed. The counter is incremented **before** the call, not after — a budget that
+   only counts successes cannot stop a loop that is failing.
+2. **A 5-second timeout**, both on the client and as an outer `asyncio.wait_for`. A
+   late joke is worse than an instant static one.
+3. **Fallback to the stored text** on any exception at all.
+
+The call sends `thinking={"type": "disabled"}` and `output_config={"effort": "low"}`:
+a one-liner needs no deliberation, and every second spent thinking is a second the
+channel waits. `max_tokens` is 300 — well above two sentences, because a response cut
+off mid-word would still be sent.
+
+**Message content stays on the host by default.** `build_prompt()` sends only the
+trigger word and how often that person has set it off; the message itself is included
+only after `/ai context send_message:True`. That is a deliberate opt-in, and `/ai
+context` says plainly that turning it on means colleagues' messages leave the server.
+
+Persona (`/ai persona`) is stored per guild and goes into the **system prompt**, so
+changing the bot's voice needs no rebuild — same principle as reminders and triggers
+holding no text in the code. `GUARDRAILS` is appended to whatever the admin wrote
+(Dutch, max two sentences, no invented facts), so the guards do not depend on the
+persona author remembering them.
+
+`/ai test` deliberately bypasses the enabled check — the persona has to be tunable
+before it is switched on for the channel — but it does spend budget, since it is a
+real call.
+
+`anthropic` is in `requirements.txt`, but `generate()` catches its `ImportError` and
+returns `None`: an older image without the package loads and runs, it just never
+generates. Without `ANTHROPIC_API_KEY` in `.env` on the host, `/ai enable` refuses and
+says so, rather than switching on something that will silently never work.
+
 ## Rate limiting
 
 `RateLimitedTree` in `core/bot.py` puts one shared cooldown (5 uses / 15 s / user) in front of every slash command via `interaction_check`, rather than a decorator per command that a new cog could forget. It lets non-application-command interactions through untouched — autocomplete fires on every keystroke and must never be throttled.
