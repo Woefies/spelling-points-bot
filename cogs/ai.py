@@ -28,6 +28,7 @@ from services.ai import (
     build_prompt,
     format_usage,
     generate,
+    generate_verbose,
     judge_evasion,
     parse_usage,
 )
@@ -404,14 +405,15 @@ class AICog(commands.Cog):
         # Deliberately bypasses the on/off check so the persona can be tuned
         # before switching it on for the channel. It does spend budget.
         self._spend(interaction.guild_id)
-        text = await generate(
+        text, problem = await generate_verbose(
             self.persona(interaction.guild_id),
             build_prompt(word, 3, None),
             self.timeout(interaction.guild_id),
         )
+        # The reason goes in the reply, not only the log: whoever tunes this bot
+        # is not whoever can read the log on the machine it runs on.
         await interaction.followup.send(
-            f"🤖 {text}" if text else
-            "🚫 Geen antwoord gekregen. Sleutel geldig? Budget op? Kijk in de logs.",
+            f"🤖 {text}" if text else f"🚫 Geen antwoord.\n**{problem}**",
             ephemeral=True,
         )
 

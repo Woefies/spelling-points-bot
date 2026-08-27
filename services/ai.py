@@ -105,58 +105,114 @@ def build_prompt(pattern: str, count: int, message: str | None) -> str:
     return "\n".join(lines)
 
 
+# Newer request options. An older anthropic SDK, or an older API surface behind
+# the same key, rejects these outright — so a failure that names one of them is
+# retried without them rather than reported as "no answer".
+_TUNING = {"thinking": {"type": "disabled"}, "output_config": {"effort": "low"}}
+
+
+def _rejects_tuning(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return isinstance(exc, TypeError) or any(
+        name in text for name in ("thinking", "output_config", "effort", "unexpected keyword")
+    )
+
+
+def _explain(exc: Exception) -> str:
+    """Turn an SDK exception into something an admin can act on.
+
+    The three that actually happen with a fresh key: no credit, wrong key, wrong
+    model name. Anything else falls through with its own text, truncated.
+    """
+    text = f"{exc}".lower()
+    status = getattr(exc, "status_code", None)
+    if status == 401 or "authentication" in text or "invalid x-api-key" in text:
+        return "De sleutel wordt geweigerd. Klopt hij, en is hij niet ingetrokken?"
+    if "credit balance" in text or "billing" in text or status == 402:
+        return (
+            "Er staat geen tegoed op het Anthropic-account. Opwaarderen in de "
+            "Console onder Billing."
+        )
+    if status == 404 or ("model" in text and "not_found" in text):
+        return f"Het model {MODEL} bestaat niet voor dit account."
+    if status == 429:
+        return "Te veel aanvragen tegelijk. Even wachten."
+    return f"{type(exc).__name__}: {exc}"[:300]
+
+
 async def _ask(
     system: str, prompt: str, max_tokens: int, what: str, timeout: float = TIMEOUT_SECONDS
-) -> str | None:
-    """One short completion, or None if anything at all goes wrong.
+) -> tuple[str | None, str | None]:
+    """(answer, why there is none). Never raises.
 
-    Every caller in this module goes through here, so the timeout, the disabled
-    thinking and the swallow-everything contract are stated once.
+    Every caller in this module goes through here, so the timeout and the
+    swallow-everything contract are stated once. The reason is returned rather
+    than only logged, because the people who configure this bot do not have
+    shell access to the machine it runs on — "check the logs" is not a usable
+    instruction for them.
     """
     key = api_key()
     if not key:
-        return None
+        return None, "Er is geen API-sleutel."
 
     try:
         from anthropic import AsyncAnthropic
     except ImportError:
         log.warning("anthropic package not installed — AI features disabled")
-        return None
-
-    try:
-        client = AsyncAnthropic(api_key=key, timeout=timeout)
-        response = await asyncio.wait_for(
-            client.messages.create(
-                model=MODEL,
-                max_tokens=max_tokens,
-                # Neither a one-line joke nor a yes/no verdict needs deliberation,
-                # and every second here is a second the channel waits.
-                thinking={"type": "disabled"},
-                output_config={"effort": "low"},
-                system=system,
-                messages=[{"role": "user", "content": prompt}],
-            ),
-            # Outer guard as well as the client's own: a client that never
-            # settles would otherwise hold the message handler open.
-            timeout=timeout + 1,
+        return None, (
+            "Het pakket `anthropic` zit niet in de image. Rebuild met "
+            "`docker compose up -d --build`."
         )
-    except asyncio.TimeoutError:
-        log.warning("AI %s timed out after %.1fs", what, timeout)
-        return None
-    except Exception:
-        log.exception("AI %s failed", what)
-        return None
 
-    if response.stop_reason == "refusal":
-        log.info("AI declined: %s", what)
-        return None
+    client = AsyncAnthropic(api_key=key, timeout=timeout)
+    body = {
+        "model": MODEL,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": [{"role": "user", "content": prompt}],
+    }
 
-    text = "".join(b.text for b in response.content if b.type == "text").strip()
-    return text or None
+    # First with the tuning options, then without. Neither a one-line joke nor a
+    # yes/no verdict needs deliberation, but not being able to say so is no
+    # reason to fall silent.
+    for attempt, extra in enumerate((_TUNING, {})):
+        try:
+            response = await asyncio.wait_for(
+                client.messages.create(**body, **extra),
+                # Outer guard as well as the client's own: a client that never
+                # settles would otherwise hold the message handler open.
+                timeout=timeout + 1,
+            )
+        except asyncio.TimeoutError:
+            log.warning("AI %s timed out after %.1fs", what, timeout)
+            return None, f"Geen antwoord binnen {timeout:g} seconden."
+        except Exception as exc:
+            if attempt == 0 and _rejects_tuning(exc):
+                log.warning("AI %s: retrying without tuning options (%s)", what, exc)
+                continue
+            log.exception("AI %s failed", what)
+            return None, _explain(exc)
+
+        if response.stop_reason == "refusal":
+            log.info("AI declined: %s", what)
+            return None, "Het model wilde hier niet op antwoorden."
+
+        text = "".join(b.text for b in response.content if b.type == "text").strip()
+        return (text, None) if text else (None, "Het model gaf een leeg antwoord.")
+
+    return None, "Onbekende fout."
 
 
 async def generate(persona: str, prompt: str, timeout: float = TIMEOUT_SECONDS) -> str | None:
     """A trigger reply in the guild's own voice, or None to use the stored text."""
+    text, _ = await generate_verbose(persona, prompt, timeout)
+    return text
+
+
+async def generate_verbose(
+    persona: str, prompt: str, timeout: float = TIMEOUT_SECONDS
+) -> tuple[str | None, str | None]:
+    """As `generate`, but also says why there is no answer. Used by /ai test."""
     return await _ask(f"{persona}\n\n{GUARDRAILS}", prompt, MAX_TOKENS, "reply", timeout)
 
 
@@ -198,7 +254,7 @@ async def judge_evasion(
     pattern: str, word: str, message: str | None, timeout: float = TIMEOUT_SECONDS
 ) -> bool | None:
     """True if the word dodges the trigger, False if not, None if unknown."""
-    raw = await _ask(
+    raw, _ = await _ask(
         JUDGE_SYSTEM,
         build_judge_prompt(pattern, word, message),
         JUDGE_MAX_TOKENS,
