@@ -398,8 +398,16 @@ class AICog(commands.Cog):
         await interaction.response.send_message(text, ephemeral=True)
 
     @ai.command(name="test", description="Genereer nu een voorbeeldantwoord met de huidige persona")
-    @app_commands.describe(word="Trefwoord om mee te testen, bijvoorbeeld thuiswerken")
-    async def test_cmd(self, interaction: discord.Interaction, word: str) -> None:
+    @app_commands.describe(
+        word="Trefwoord om mee te testen, bijvoorbeeld thuiswerken",
+        count="Doe alsof iemand het zo vaak zei. Laat leeg voor de eerste keer",
+    )
+    async def test_cmd(
+        self,
+        interaction: discord.Interaction,
+        word: str,
+        count: app_commands.Range[int, 1, 999] | None = None,
+    ) -> None:
         if not api_key():
             await interaction.response.send_message(self._no_key(), ephemeral=True)
             return
@@ -408,17 +416,30 @@ class AICog(commands.Cog):
         # Deliberately bypasses the on/off check so the persona can be tuned
         # before switching it on for the channel. It does spend budget.
         self._spend(interaction.guild_id)
+        # Default 1, which leaves the hit count out of the prompt entirely. It
+        # used to be a hard-coded 3, so every test answer referred to "the third
+        # time" and read as if it were about a real person.
         text, problem = await generate_verbose(
             self.persona(interaction.guild_id),
-            build_prompt(word, 3, None),
+            build_prompt(word, count or 1, None),
             self.timeout(interaction.guild_id),
         )
         # The reason goes in the reply, not only the log: whoever tunes this bot
         # is not whoever can read the log on the machine it runs on.
-        await interaction.followup.send(
-            f"🤖 {text}" if text else f"🚫 Geen antwoord.\n**{problem}**",
-            ephemeral=True,
+        if not text:
+            await interaction.followup.send(
+                f"🚫 Geen antwoord.\n**{problem}**", ephemeral=True
+            )
+            return
+
+        # Say plainly that this was a dry run. /ai test bypasses the on/off
+        # switch on purpose, which otherwise reads as "the AI works" when in the
+        # channel nothing has changed at all.
+        tail = "" if self.replies_on(interaction.guild_id) else (
+            "\n\n_Dit was alleen een test. In het kanaal gebruiken triggers nog "
+            "hun vaste tekst — zet aan met `/ai replies enabled:True`._"
         )
+        await interaction.followup.send(f"🤖 {text}{tail}", ephemeral=True)
 
     @ai.command(name="status", description="Toon of AI aanstaat, het verbruik en de persona")
     async def status_cmd(self, interaction: discord.Interaction) -> None:
