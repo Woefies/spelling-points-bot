@@ -21,8 +21,10 @@ from services.ai import (
     MIN_CANDIDATES,
     MIN_TIMEOUT,
     TIMEOUT_SECONDS,
+    KEY_NAME,
     api_key,
     clamp,
+    key_state,
     build_prompt,
     format_usage,
     generate,
@@ -159,6 +161,18 @@ class AICog(commands.Cog):
         guild_only=True,
     )
 
+    def _key_problem(self) -> str:
+        """Say which way the key is missing, since the fixes differ."""
+        state, similar = key_state()
+        if state == "empty":
+            text = f"**staat leeg** — `{KEY_NAME}=` zonder waarde erachter"
+        else:
+            text = "**bereikt de bot niet**"
+        if similar:
+            names = ", ".join(f"`{n}`" for n in similar[:5])
+            text += f"\n  ⚠️ Wel gevonden, met een andere naam: {names}"
+        return text
+
     def _no_key(self) -> str:
         """Why the key is missing is nearly always one of two things.
 
@@ -166,7 +180,8 @@ class AICog(commands.Cog):
         on this deployment is one person who is not always available.
         """
         return (
-            "🚫 De bot ziet geen `ANTHROPIC_API_KEY`. Twee mogelijke oorzaken:\n"
+            f"🚫 De bot ziet geen `{KEY_NAME}` — {self._key_problem()}\n"
+            "Twee mogelijke oorzaken:\n"
             "1. De sleutel staat nog niet in de `.env` naast `docker-compose.yml`, "
             "of de regel begint met een `#`.\n"
             "2. De sleutel staat er wél, maar de container draait nog met de oude "
@@ -403,7 +418,7 @@ class AICog(commands.Cog):
     @ai.command(name="status", description="Toon of AI aanstaat, het verbruik en de persona")
     async def status_cmd(self, interaction: discord.Interaction) -> None:
         gid = interaction.guild_id
-        key = "aanwezig" if api_key() else "**ontbreekt op de host**"
+        key = "aanwezig" if api_key() else self._key_problem()
         content = "bericht wordt meegestuurd" if self.bot.repo.get_config(gid, CONFIG_SEND_MESSAGE) == "1" \
             else "alleen het trefwoord"
         judged = len(self.bot.repo.list_evasion_verdicts(gid))

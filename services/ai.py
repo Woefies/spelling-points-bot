@@ -54,8 +54,39 @@ JUDGE_SYSTEM = (
 )
 
 
+KEY_NAME = "ANTHROPIC_API_KEY"
+
+
 def api_key() -> str | None:
-    return os.getenv("ANTHROPIC_API_KEY") or None
+    return os.getenv(KEY_NAME) or None
+
+
+def key_state() -> tuple[str, list[str]]:
+    """How the key is missing, and any near-miss variable names.
+
+    "Not set" and "set but empty" look identical from `api_key()` and have
+    completely different fixes, so they are separated here. The near-miss list
+    catches the other recurring cause — a typo in the variable name, which
+    otherwise presents as "the whole file is being ignored" and sends people
+    looking in the wrong place entirely.
+
+    Names only. The value never leaves this function.
+    """
+    raw = os.environ.get(KEY_NAME)
+    if raw is None:
+        state = "absent"
+    elif not raw.strip():
+        state = "empty"
+    else:
+        state = "present"
+
+    similar = sorted(
+        name
+        for name in os.environ
+        if name != KEY_NAME
+        and ("ANTHROP" in name.upper() or "ANTROPH" in name.upper() or "CLAUDE" in name.upper())
+    )
+    return state, similar
 
 
 def build_prompt(pattern: str, count: int, message: str | None) -> str:
