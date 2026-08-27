@@ -12,6 +12,11 @@ The empty string is meaningful and never an error: it is how someone says
 
 import re
 
+# Discord's own ceiling for one modal text input. Nothing in this bot may
+# invent a tighter limit than the platform imposes — a field that refuses text
+# the platform would have accepted is a limit nobody asked for.
+MODAL_MAX = 4000
+
 # Everything a Dutch speaker plausibly types for yes, and for no. Anything else
 # is not a third option, it is a typo, and is reported as one.
 _YES = {"ja", "j", "aan", "true", "waar", "1", "y", "yes", "on"}

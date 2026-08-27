@@ -41,8 +41,16 @@ DEFAULT_PERSONA = (
 GUARDRAILS = (
     "Antwoord in het Nederlands, in maximaal twee korte zinnen. "
     "Geen aanhalingstekens om je antwoord. Geen uitleg over wat je doet. "
-    "Verzin geen feiten over mensen. Blijf luchtig en beledig niemand persoonlijk."
+    "Verzin geen feiten over mensen. Blijf luchtig en beledig niemand persoonlijk. "
+    "Verzin elke keer een andere invalshoek: hergebruik niet steeds dezelfde grap, "
+    "dezelfde woorden of dezelfde emoji. Het aantal keren is achtergrondinformatie "
+    "en hoef je meestal niet te noemen. De voorbeelden in je omschrijving laten zien "
+    "hoe je klinkt, het zijn geen zinnen om te herhalen."
 )
+
+# How many of this trigger's own recent lines are shown back to the model, so it
+# can be told what it already said.
+RECENT_MEMORY = 10
 
 
 JUDGE_SYSTEM = (
@@ -57,8 +65,23 @@ JUDGE_SYSTEM = (
 KEY_NAME = "ANTHROPIC_API_KEY"
 
 
+KEY_PREFIX = "sk-ant-"
+
+
 def api_key() -> str | None:
-    return os.getenv(KEY_NAME) or None
+    """The key, cleaned up.
+
+    Stripping is load-bearing, not tidiness. An env file edited on Windows ends
+    its lines with \r, and some Compose versions keep the quotes around a quoted
+    value — both produce a key that looks perfectly present and is rejected with
+    a 401, which sends people hunting for a billing or account problem that does
+    not exist.
+    """
+    raw = os.getenv(KEY_NAME)
+    if not raw:
+        return None
+    cleaned = raw.strip().strip("\"'").strip()
+    return cleaned or None
 
 
 def key_state() -> tuple[str, list[str]]:
@@ -77,6 +100,8 @@ def key_state() -> tuple[str, list[str]]:
         state = "absent"
     elif not raw.strip():
         state = "empty"
+    elif not (api_key() or "").startswith(KEY_PREFIX):
+        state = "malformed"
     else:
         state = "present"
 
@@ -89,18 +114,47 @@ def key_state() -> tuple[str, list[str]]:
     return state, similar
 
 
-def build_prompt(pattern: str, count: int, message: str | None) -> str:
+def key_shape() -> str:
+    """Length and prefix, never the key.
+
+    Enough to spot a truncated or half-pasted key by comparing with the Console,
+    and not enough to be worth anything to anyone reading over a shoulder.
+    """
+    key = api_key()
+    if not key:
+        return "geen sleutel"
+    prefix = "begint goed" if key.startswith(KEY_PREFIX) else f"begint met `{key[:7]}`"
+    return f"{len(key)} tekens, {prefix}"
+
+
+def build_prompt(
+    pattern: str,
+    count: int,
+    message: str | None,
+    recent: list[str] | None = None,
+) -> str:
     """What the model is told about the situation.
 
     `message` is None unless the guild opted into sending message content — the
     default keeps colleagues' actual messages off the wire, and the trigger word
     plus a hit count is enough for a one-liner.
+
+    `recent` holds this trigger's last few generated lines. Each call is
+    otherwise independent and identically shaped, so the model lands on the same
+    joke every time and the channel goes stale within a day — the same problem
+    `pick_variant` solves for the stored texts, solved the same way: by knowing
+    what was already said.
     """
     lines = [f"Iemand zei een woord waar jij op let: \"{pattern.split('|')[0]}\"."]
     if count > 1:
         lines.append(f"Dat is de {count}e keer voor deze persoon.")
     if message:
         lines.append(f"Het bericht was: \"{message[:400]}\"")
+    if recent:
+        lines.append("")
+        lines.append("Dit zei je hier al eerder, dus verzin iets anders:")
+        lines.extend(f"- {line}" for line in recent[-RECENT_MEMORY:])
+        lines.append("")
     lines.append("Schrijf jouw reactie.")
     return "\n".join(lines)
 

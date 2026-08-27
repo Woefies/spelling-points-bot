@@ -6,6 +6,7 @@ in the code.
 """
 
 import logging
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 
 import discord
@@ -24,7 +25,9 @@ from services.ai import (
     KEY_NAME,
     api_key,
     clamp,
+    key_shape,
     key_state,
+    RECENT_MEMORY,
     build_prompt,
     format_usage,
     generate,
@@ -32,6 +35,7 @@ from services.ai import (
     judge_evasion,
     parse_usage,
 )
+from services.forms import MODAL_MAX
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +57,13 @@ RESET = "-"
 class AICog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        # Last few generated lines per (guild, trigger), so the model can be told
+        # what it already said. In memory rather than in the database: this is
+        # about keeping one afternoon from going stale, not about history, and it
+        # would otherwise be a write on the message path for no lasting gain.
+        self._recent: dict[tuple[int, str], deque] = defaultdict(
+            lambda: deque(maxlen=RECENT_MEMORY)
+        )
         # Logged at load rather than on first use: "is the key even reaching the
         # container?" is the first question every time, and the startup log is
         # the one place someone with shell access is already looking.
@@ -115,11 +126,17 @@ class AICog(commands.Cog):
         # Count the call before making it: a failed call still cost latency, and
         # a budget that only counts successes cannot stop a failing loop.
         self._spend(guild_id)
-        return await generate(
+        recent = self._recent[(guild_id, pattern)]
+        text = await generate(
             self.persona(guild_id),
-            build_prompt(pattern, count, content if send_message else None),
+            build_prompt(
+                pattern, count, content if send_message else None, list(recent)
+            ),
             self.timeout(guild_id),
         )
+        if text:
+            recent.append(text)
+        return text
 
     async def evasion_for(self, guild_id: int, pattern: str, word: str, content: str) -> bool:
         """Whether `word` is a deliberate dodge of `pattern`.
@@ -167,6 +184,8 @@ class AICog(commands.Cog):
         state, similar = key_state()
         if state == "empty":
             text = f"**staat leeg** — `{KEY_NAME}=` zonder waarde erachter"
+        elif state == "malformed":
+            text = f"**ziet er niet uit als een sleutel** ({key_shape()})"
         else:
             text = "**bereikt de bot niet**"
         if similar:
@@ -314,9 +333,16 @@ class AICog(commands.Cog):
         # the longest text anyone writes in this bot, and rewriting it blind in a
         # one-line box is how good wording gets lost.
         if text is None:
-            await interaction.response.send_modal(
-                PersonaForm(self, self.persona(interaction.guild_id))
-            )
+            current = self.persona(interaction.guild_id)
+            if len(current) > MODAL_MAX:
+                await interaction.response.send_message(
+                    f"🚫 De huidige persona is **{len(current)}** tekens en een "
+                    f"invulvenster draagt er {MODAL_MAX}. Aanpassen kan wel op één "
+                    "regel: `/ai persona text: …`",
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.send_modal(PersonaForm(self, current))
             return
 
         if text.strip() == RESET:
@@ -395,8 +421,16 @@ class AICog(commands.Cog):
         await interaction.response.send_message(text, ephemeral=True)
 
     @ai.command(name="test", description="Genereer nu een voorbeeldantwoord met de huidige persona")
-    @app_commands.describe(word="Trefwoord om mee te testen, bijvoorbeeld thuiswerken")
-    async def test_cmd(self, interaction: discord.Interaction, word: str) -> None:
+    @app_commands.describe(
+        word="Trefwoord om mee te testen, bijvoorbeeld thuiswerken",
+        count="Doe alsof iemand het zo vaak zei. Laat leeg voor de eerste keer",
+    )
+    async def test_cmd(
+        self,
+        interaction: discord.Interaction,
+        word: str,
+        count: app_commands.Range[int, 1, 999] | None = None,
+    ) -> None:
         if not api_key():
             await interaction.response.send_message(self._no_key(), ephemeral=True)
             return
@@ -405,22 +439,35 @@ class AICog(commands.Cog):
         # Deliberately bypasses the on/off check so the persona can be tuned
         # before switching it on for the channel. It does spend budget.
         self._spend(interaction.guild_id)
+        # Default 1, which leaves the hit count out of the prompt entirely. It
+        # used to be a hard-coded 3, so every test answer referred to "the third
+        # time" and read as if it were about a real person.
         text, problem = await generate_verbose(
             self.persona(interaction.guild_id),
-            build_prompt(word, 3, None),
+            build_prompt(word, count or 1, None),
             self.timeout(interaction.guild_id),
         )
         # The reason goes in the reply, not only the log: whoever tunes this bot
         # is not whoever can read the log on the machine it runs on.
-        await interaction.followup.send(
-            f"🤖 {text}" if text else f"🚫 Geen antwoord.\n**{problem}**",
-            ephemeral=True,
+        if not text:
+            await interaction.followup.send(
+                f"🚫 Geen antwoord.\n**{problem}**", ephemeral=True
+            )
+            return
+
+        # Say plainly that this was a dry run. /ai test bypasses the on/off
+        # switch on purpose, which otherwise reads as "the AI works" when in the
+        # channel nothing has changed at all.
+        tail = "" if self.replies_on(interaction.guild_id) else (
+            "\n\n_Dit was alleen een test. In het kanaal gebruiken triggers nog "
+            "hun vaste tekst — zet aan met `/ai replies enabled:True`._"
         )
+        await interaction.followup.send(f"🤖 {text}{tail}", ephemeral=True)
 
     @ai.command(name="status", description="Toon of AI aanstaat, het verbruik en de persona")
     async def status_cmd(self, interaction: discord.Interaction) -> None:
         gid = interaction.guild_id
-        key = "aanwezig" if api_key() else self._key_problem()
+        key = f"aanwezig ({key_shape()})" if api_key() else self._key_problem()
         content = "bericht wordt meegestuurd" if self.bot.repo.get_config(gid, CONFIG_SEND_MESSAGE) == "1" \
             else "alleen het trefwoord"
         judged = len(self.bot.repo.list_evasion_verdicts(gid))
@@ -451,7 +498,6 @@ class PersonaForm(discord.ui.Modal):
             style=discord.TextStyle.paragraph,
             default=current,
             placeholder="Lengte, toon, eigenaardigheden, en twee voorbeeldzinnen",
-            max_length=3000,
         )
         self.add_item(self.text)
 

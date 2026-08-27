@@ -413,13 +413,11 @@ class ReminderForm(discord.ui.Modal):
             style=discord.TextStyle.paragraph,
             default=rem.message,
             placeholder="Varianten scheiden met | zodat de bot afwisselt",
-            max_length=1800,
         )
         self.time = discord.ui.TextInput(
             label="Tijd(en) als HH:MM",
             default=_format_times(rem.time),
             placeholder="09:00, 13:00, 17:00",
-            max_length=200,
         )
         self.mention = discord.ui.TextInput(
             label="Iedereen pingen? ja / nee",
@@ -431,7 +429,6 @@ class ReminderForm(discord.ui.Modal):
             label="Kanaal (leeg = laten staan)",
             placeholder="Plak het kanaal of vul het ID in",
             required=False,
-            max_length=40,
         )
         for field in (self.message, self.time, self.mention, self.channel):
             self.add_item(field)
