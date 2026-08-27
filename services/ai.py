@@ -48,9 +48,9 @@ GUARDRAILS = (
     "hoe je klinkt, het zijn geen zinnen om te herhalen."
 )
 
-# How many of this trigger's own recent lines are shown back to the model. Five
-# is enough to break a rut and short enough not to crowd out the persona.
-RECENT_MEMORY = 5
+# How many of this trigger's own recent lines are shown back to the model, so it
+# can be told what it already said.
+RECENT_MEMORY = 10
 
 
 JUDGE_SYSTEM = (

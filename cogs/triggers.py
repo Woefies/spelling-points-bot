@@ -421,7 +421,6 @@ class TriggerForm(discord.ui.Modal):
             label="Woorden",
             default=trig.pattern,
             placeholder="thuiswerken|thuis werken",
-            max_length=500,
         )
         self.response = discord.ui.TextInput(
             label="Antwoord (leeg = geen antwoord)",
@@ -429,20 +428,20 @@ class TriggerForm(discord.ui.Modal):
             default=trig.response or "",
             placeholder="Varianten scheiden met | · {user} {count} {minutes}",
             required=False,
-            max_length=2000,
         )
         self.reactions = discord.ui.TextInput(
             label="Emoji (leeg = geen)",
             default=trig.reactions or "",
             placeholder="👀,❌",
             required=False,
-            max_length=200,
         )
         self.minutes = discord.ui.TextInput(
             label="Timeout in minuten (leeg = geen straf)",
             default=str(trig.punish_minutes) if trig.punish_minutes else "",
             placeholder="5",
             required=False,
+            # 1440 is the longest timeout Discord allows, so four digits is the
+            # real ceiling rather than one of ours.
             max_length=4,
         )
         self.watch = discord.ui.TextInput(

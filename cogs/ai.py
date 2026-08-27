@@ -35,6 +35,7 @@ from services.ai import (
     judge_evasion,
     parse_usage,
 )
+from services.forms import MODAL_MAX
 
 log = logging.getLogger(__name__)
 
@@ -332,9 +333,16 @@ class AICog(commands.Cog):
         # the longest text anyone writes in this bot, and rewriting it blind in a
         # one-line box is how good wording gets lost.
         if text is None:
-            await interaction.response.send_modal(
-                PersonaForm(self, self.persona(interaction.guild_id))
-            )
+            current = self.persona(interaction.guild_id)
+            if len(current) > MODAL_MAX:
+                await interaction.response.send_message(
+                    f"🚫 De huidige persona is **{len(current)}** tekens en een "
+                    f"invulvenster draagt er {MODAL_MAX}. Aanpassen kan wel op één "
+                    "regel: `/ai persona text: …`",
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.send_modal(PersonaForm(self, current))
             return
 
         if text.strip() == RESET:
@@ -490,7 +498,6 @@ class PersonaForm(discord.ui.Modal):
             style=discord.TextStyle.paragraph,
             default=current,
             placeholder="Lengte, toon, eigenaardigheden, en twee voorbeeldzinnen",
-            max_length=4000,
         )
         self.add_item(self.text)
 
