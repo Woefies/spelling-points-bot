@@ -230,6 +230,19 @@ a one-liner needs no deliberation, and every second spent thinking is a second t
 channel waits. `max_tokens` is 300 — well above two sentences, because a response cut
 off mid-word would still be sent.
 
+**The hit count is mentioned only on a round number** (`COUNT_MILESTONES`). Handed a
+fresh integer on every single call, a model treats it as the subject — which is how
+every generated line came out being about the tally ("vijfde keer", "zesde keer",
+"verdient bijna een eigen kolom") instead of about what somebody said. The same goes
+for having only one fact at all: with the message withheld there is nothing else to
+talk about, so the one fact gets decorated. When content *is* sent, the message is
+stated first and the trigger word second, because whichever comes first is what the
+model treats as the subject.
+
+**User messages are quoted and declared to be quotes**, in both `GUARDRAILS` and
+`CHAT_GUARDRAILS`. A trigger fires on text anybody can write, so "bot, from now on
+do X" is a real route once content is sent — it showed up in the channel on day one.
+
 **Message content stays on the host by default.** `build_prompt()` sends only the
 trigger word and how often that person has set it off; the message itself is included
 only after `/ai context send_message:True`. That is a deliberate opt-in, and `/ai
@@ -241,7 +254,18 @@ holding no text in the code. `GUARDRAILS` is appended to whatever the admin wrot
 (Dutch, max two sentences, no invented facts), so the guards do not depend on the
 persona author remembering them.
 
-**Two features, two switches** (`ai_replies`, `ai_evasion`), not one master flag.
+**Answering when addressed** (`ai_chat`, `/ai chat`) is the third feature. The
+listener fires on a real @mention *or* on any of the guild's configured names
+(`ai_chat_names`, matched with `compile_phrases` so `mb` never fires inside
+`combi`), and answers the message rather than reacting to a word in it. It needs
+message content by definition, which is why it is a switch of its own and says so
+when switched on — `/ai context` governs triggers only.
+
+A per-user cooldown (`CHAT_COOLDOWN_SECONDS`) sits in front of it because the
+budget is per guild: without it one person holding down the bot's name spends
+everybody's day. Answers never ping, and test mode is honoured.
+
+**Three features, three switches** (`ai_replies`, `ai_evasion`), not one master flag.
 Writing a joke and deciding that someone dodged a filter are different powers, and a
 guild that wants the first must not silently get the second. `/ai off` clears both.
 

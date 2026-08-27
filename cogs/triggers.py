@@ -80,10 +80,19 @@ class TriggersCog(commands.Cog):
                 ai = self.bot.get_cog("AICog")
                 if ai is not None:
                     generated = await ai.reply_for(
-                        message.guild.id, trig.pattern, count, message.content
+                        message.guild.id,
+                        trig.pattern,
+                        count,
+                        message.content,
+                        message.author.display_name,
                     )
                     if generated:
-                        text = f"{message.author.mention} {generated}"
+                        # No mention in front. The stored texts use {user}
+                        # because they are written once and have to address
+                        # somebody; a generated line is a reply to a message
+                        # that is already right there, and prefixing every one
+                        # of them turns a busy channel into a wall of handles.
+                        text = generated
 
                 if dodge:
                     # Name the word. Someone muted for a word they did not
