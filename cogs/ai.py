@@ -24,6 +24,7 @@ from services.ai import (
     KEY_NAME,
     api_key,
     clamp,
+    key_shape,
     key_state,
     build_prompt,
     format_usage,
@@ -167,6 +168,8 @@ class AICog(commands.Cog):
         state, similar = key_state()
         if state == "empty":
             text = f"**staat leeg** — `{KEY_NAME}=` zonder waarde erachter"
+        elif state == "malformed":
+            text = f"**ziet er niet uit als een sleutel** ({key_shape()})"
         else:
             text = "**bereikt de bot niet**"
         if similar:
@@ -420,7 +423,7 @@ class AICog(commands.Cog):
     @ai.command(name="status", description="Toon of AI aanstaat, het verbruik en de persona")
     async def status_cmd(self, interaction: discord.Interaction) -> None:
         gid = interaction.guild_id
-        key = "aanwezig" if api_key() else self._key_problem()
+        key = f"aanwezig ({key_shape()})" if api_key() else self._key_problem()
         content = "bericht wordt meegestuurd" if self.bot.repo.get_config(gid, CONFIG_SEND_MESSAGE) == "1" \
             else "alleen het trefwoord"
         judged = len(self.bot.repo.list_evasion_verdicts(gid))

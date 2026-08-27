@@ -57,8 +57,23 @@ JUDGE_SYSTEM = (
 KEY_NAME = "ANTHROPIC_API_KEY"
 
 
+KEY_PREFIX = "sk-ant-"
+
+
 def api_key() -> str | None:
-    return os.getenv(KEY_NAME) or None
+    """The key, cleaned up.
+
+    Stripping is load-bearing, not tidiness. An env file edited on Windows ends
+    its lines with \r, and some Compose versions keep the quotes around a quoted
+    value — both produce a key that looks perfectly present and is rejected with
+    a 401, which sends people hunting for a billing or account problem that does
+    not exist.
+    """
+    raw = os.getenv(KEY_NAME)
+    if not raw:
+        return None
+    cleaned = raw.strip().strip("\"'").strip()
+    return cleaned or None
 
 
 def key_state() -> tuple[str, list[str]]:
@@ -77,6 +92,8 @@ def key_state() -> tuple[str, list[str]]:
         state = "absent"
     elif not raw.strip():
         state = "empty"
+    elif not (api_key() or "").startswith(KEY_PREFIX):
+        state = "malformed"
     else:
         state = "present"
 
@@ -87,6 +104,19 @@ def key_state() -> tuple[str, list[str]]:
         and ("ANTHROP" in name.upper() or "ANTROPH" in name.upper() or "CLAUDE" in name.upper())
     )
     return state, similar
+
+
+def key_shape() -> str:
+    """Length and prefix, never the key.
+
+    Enough to spot a truncated or half-pasted key by comparing with the Console,
+    and not enough to be worth anything to anyone reading over a shoulder.
+    """
+    key = api_key()
+    if not key:
+        return "geen sleutel"
+    prefix = "begint goed" if key.startswith(KEY_PREFIX) else f"begint met `{key[:7]}`"
+    return f"{len(key)} tekens, {prefix}"
 
 
 def build_prompt(pattern: str, count: int, message: str | None) -> str:
