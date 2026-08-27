@@ -6,6 +6,7 @@ in the code.
 """
 
 import logging
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 
 import discord
@@ -26,6 +27,7 @@ from services.ai import (
     clamp,
     key_shape,
     key_state,
+    RECENT_MEMORY,
     build_prompt,
     format_usage,
     generate,
@@ -54,6 +56,13 @@ RESET = "-"
 class AICog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        # Last few generated lines per (guild, trigger), so the model can be told
+        # what it already said. In memory rather than in the database: this is
+        # about keeping one afternoon from going stale, not about history, and it
+        # would otherwise be a write on the message path for no lasting gain.
+        self._recent: dict[tuple[int, str], deque] = defaultdict(
+            lambda: deque(maxlen=RECENT_MEMORY)
+        )
         # Logged at load rather than on first use: "is the key even reaching the
         # container?" is the first question every time, and the startup log is
         # the one place someone with shell access is already looking.
@@ -116,11 +125,17 @@ class AICog(commands.Cog):
         # Count the call before making it: a failed call still cost latency, and
         # a budget that only counts successes cannot stop a failing loop.
         self._spend(guild_id)
-        return await generate(
+        recent = self._recent[(guild_id, pattern)]
+        text = await generate(
             self.persona(guild_id),
-            build_prompt(pattern, count, content if send_message else None),
+            build_prompt(
+                pattern, count, content if send_message else None, list(recent)
+            ),
             self.timeout(guild_id),
         )
+        if text:
+            recent.append(text)
+        return text
 
     async def evasion_for(self, guild_id: int, pattern: str, word: str, content: str) -> bool:
         """Whether `word` is a deliberate dodge of `pattern`.
@@ -475,7 +490,7 @@ class PersonaForm(discord.ui.Modal):
             style=discord.TextStyle.paragraph,
             default=current,
             placeholder="Lengte, toon, eigenaardigheden, en twee voorbeeldzinnen",
-            max_length=3000,
+            max_length=4000,
         )
         self.add_item(self.text)
 

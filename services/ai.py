@@ -41,8 +41,16 @@ DEFAULT_PERSONA = (
 GUARDRAILS = (
     "Antwoord in het Nederlands, in maximaal twee korte zinnen. "
     "Geen aanhalingstekens om je antwoord. Geen uitleg over wat je doet. "
-    "Verzin geen feiten over mensen. Blijf luchtig en beledig niemand persoonlijk."
+    "Verzin geen feiten over mensen. Blijf luchtig en beledig niemand persoonlijk. "
+    "Verzin elke keer een andere invalshoek: hergebruik niet steeds dezelfde grap, "
+    "dezelfde woorden of dezelfde emoji. Het aantal keren is achtergrondinformatie "
+    "en hoef je meestal niet te noemen. De voorbeelden in je omschrijving laten zien "
+    "hoe je klinkt, het zijn geen zinnen om te herhalen."
 )
+
+# How many of this trigger's own recent lines are shown back to the model. Five
+# is enough to break a rut and short enough not to crowd out the persona.
+RECENT_MEMORY = 5
 
 
 JUDGE_SYSTEM = (
@@ -119,18 +127,34 @@ def key_shape() -> str:
     return f"{len(key)} tekens, {prefix}"
 
 
-def build_prompt(pattern: str, count: int, message: str | None) -> str:
+def build_prompt(
+    pattern: str,
+    count: int,
+    message: str | None,
+    recent: list[str] | None = None,
+) -> str:
     """What the model is told about the situation.
 
     `message` is None unless the guild opted into sending message content — the
     default keeps colleagues' actual messages off the wire, and the trigger word
     plus a hit count is enough for a one-liner.
+
+    `recent` holds this trigger's last few generated lines. Each call is
+    otherwise independent and identically shaped, so the model lands on the same
+    joke every time and the channel goes stale within a day — the same problem
+    `pick_variant` solves for the stored texts, solved the same way: by knowing
+    what was already said.
     """
     lines = [f"Iemand zei een woord waar jij op let: \"{pattern.split('|')[0]}\"."]
     if count > 1:
         lines.append(f"Dat is de {count}e keer voor deze persoon.")
     if message:
         lines.append(f"Het bericht was: \"{message[:400]}\"")
+    if recent:
+        lines.append("")
+        lines.append("Dit zei je hier al eerder, dus verzin iets anders:")
+        lines.extend(f"- {line}" for line in recent[-RECENT_MEMORY:])
+        lines.append("")
     lines.append("Schrijf jouw reactie.")
     return "\n".join(lines)
 
