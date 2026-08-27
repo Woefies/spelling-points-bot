@@ -50,6 +50,13 @@ RESET = "-"
 class AICog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        # Logged at load rather than on first use: "is the key even reaching the
+        # container?" is the first question every time, and the startup log is
+        # the one place someone with shell access is already looking.
+        log.info(
+            "AI cog loaded, ANTHROPIC_API_KEY %s",
+            "present" if api_key() else "MISSING — /ai stays off",
+        )
 
     # ------------------------------------------------------------- used by triggers
 
@@ -153,9 +160,21 @@ class AICog(commands.Cog):
     )
 
     def _no_key(self) -> str:
+        """Why the key is missing is nearly always one of two things.
+
+        Naming both here saves the round trip to whoever has shell access, which
+        on this deployment is one person who is not always available.
+        """
         return (
-            "🚫 Er staat geen `ANTHROPIC_API_KEY` in de `.env` op de host. "
-            "Zonder sleutel kan de bot niets aan de AI vragen."
+            "🚫 De bot ziet geen `ANTHROPIC_API_KEY`. Twee mogelijke oorzaken:\n"
+            "1. De sleutel staat nog niet in de `.env` naast `docker-compose.yml`, "
+            "of de regel begint met een `#`.\n"
+            "2. De sleutel staat er wél, maar de container draait nog met de oude "
+            "omgeving. **Herstarten is niet genoeg** — `.env` wordt alleen gelezen "
+            "als de container opnieuw wordt aangemaakt:\n"
+            "```\ndocker compose up -d --force-recreate\n```\n"
+            "_Controleren: `docker exec spellbot printenv ANTHROPIC_API_KEY` — "
+            "lege uitvoer betekent dat hij het proces niet bereikt._"
         )
 
     @ai.command(name="replies", description="Laat de AI het antwoord op een trigger schrijven")
@@ -363,9 +382,7 @@ class AICog(commands.Cog):
     @app_commands.describe(word="Trefwoord om mee te testen, bijvoorbeeld thuiswerken")
     async def test_cmd(self, interaction: discord.Interaction, word: str) -> None:
         if not api_key():
-            await interaction.response.send_message(
-                "🚫 Geen `ANTHROPIC_API_KEY` op de host.", ephemeral=True
-            )
+            await interaction.response.send_message(self._no_key(), ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
