@@ -30,6 +30,15 @@ DEFAULT_BUDGET = 50
 MIN_TIMEOUT, MAX_TIMEOUT = 2.0, 15.0
 DEFAULT_CANDIDATES = 3
 MIN_CANDIDATES, MAX_CANDIDATES = 1, 10
+# Channel messages shown to the model when it is addressed. More than a few dozen
+# stops helping: the model starts answering something from twenty minutes ago
+# instead of the question in front of it.
+DEFAULT_HISTORY = 20
+MIN_HISTORY, MAX_HISTORY = 1, 100
+# Older than this is a different conversation, however few messages it took.
+HISTORY_MINUTES = 30
+# One long paste must not crowd out everything else in the history.
+HISTORY_CHARS = 300
 
 DEFAULT_PERSONA = (
     "Je bent een Discord-bot op de werkvloer van een klein Nederlands bedrijf. "
@@ -158,11 +167,10 @@ def build_prompt(
         lines.append(f'Je let op het woord "{pattern.split("|")[0]}".')
     else:
         lines = [f'{who} zei een woord waar jij op let: "{pattern.split("|")[0]}".']
-    if count > 1:
-        # A fact, not an instruction: whether and how often to mention it is the
-        # persona's call. Placed after the message, in brackets, so it reads as
-        # background rather than as the subject.
-        lines.append(f"(achtergrond: {who} heeft dit woord {count} keer gebruikt)")
+    # `count` is deliberately not sent. Every way of offering it — as a sentence,
+    # on milestones only, as bracketed background with a persona saying "almost
+    # never" — ended with the tally in most replies. A model handed a number uses
+    # it. The stored texts still get {count}; only the generated line goes without.
     if recent:
         lines.append("")
         lines.append("Dit zei je hier eerder, herhaal het niet letterlijk:")
@@ -293,10 +301,25 @@ CHAT_GUARDRAILS = (
 
 
 def build_chat_prompt(
-    author: str, message: str, recent: list[str] | None = None
+    author: str,
+    message: str,
+    recent: list[str] | None = None,
+    history: list[tuple[str, str]] | None = None,
 ) -> str:
-    """What the model is told when someone talks to the bot directly."""
-    lines = [f'{author} zegt tegen jou: "{message[:1000]}"']
+    """What the model is told when someone talks to the bot directly.
+
+    `history` is (author, text) for the channel messages before this one, oldest
+    first, and only when the guild opted in. It comes before the question and is
+    labelled as earlier, because whatever reads as the last thing said is what
+    the model answers — the question has to be that, not a message from minutes
+    ago.
+    """
+    lines = []
+    if history:
+        lines.append("Eerder in het kanaal (citaten, oud naar nieuw):")
+        lines.extend(f'- {who}: "{text[:HISTORY_CHARS]}"' for who, text in history)
+        lines.append("")
+    lines.append(f'Hier reageer je op. {author} zegt tegen jou: "{message[:1000]}"')
     if recent:
         lines.append("")
         lines.append("Dit zei je hier al eerder, dus herhaal jezelf niet:")

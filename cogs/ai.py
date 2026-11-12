@@ -7,7 +7,7 @@ in the code.
 
 import logging
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
@@ -16,6 +16,10 @@ from discord.ext import commands
 from services.ai import (
     DEFAULT_BUDGET,
     DEFAULT_CANDIDATES,
+    DEFAULT_HISTORY,
+    HISTORY_MINUTES,
+    MAX_HISTORY,
+    MIN_HISTORY,
     DEFAULT_PERSONA,
     MAX_CANDIDATES,
     MAX_TIMEOUT,
@@ -50,6 +54,8 @@ CONFIG_REPLIES = "ai_replies"
 CONFIG_EVASION = "ai_evasion"
 CONFIG_CHAT = "ai_chat"
 CONFIG_CHAT_NAMES = "ai_chat_names"
+CONFIG_CHAT_HISTORY = "ai_chat_history"
+CONFIG_HISTORY = "ai_history"
 CONFIG_PERSONA = "ai_persona"
 CONFIG_BUDGET = "ai_budget"
 CONFIG_TIMEOUT = "ai_timeout"
@@ -95,6 +101,15 @@ class AICog(commands.Cog):
 
     def chat_on(self, guild_id: int) -> bool:
         return self.bot.repo.get_config(guild_id, CONFIG_CHAT) == "1"
+
+    def answers(self, message: discord.Message) -> bool:
+        """Whether the chat listener takes this message.
+
+        Triggers ask this before replying. When the bot's name is also a trigger,
+        both used to answer the same message, and the trigger's line — about the
+        word, with a tally — buried the answer to the actual question.
+        """
+        return self.chat_on(message.guild.id) and bool(api_key()) and self._addressed(message)
 
     def chat_names(self, guild_id: int) -> str:
         """Names that count as addressing the bot, besides a real @mention.
@@ -142,6 +157,48 @@ class AICog(commands.Cog):
             return int(clamp(int(raw), MIN_CANDIDATES, MAX_CANDIDATES)) if raw else DEFAULT_CANDIDATES
         except ValueError:
             return DEFAULT_CANDIDATES
+
+    def history_on(self, guild_id: int) -> bool:
+        return self.bot.repo.get_config(guild_id, CONFIG_CHAT_HISTORY) == "1"
+
+    def history_size(self, guild_id: int) -> int:
+        """How many earlier channel messages go along with a chat answer."""
+        raw = self.bot.repo.get_config(guild_id, CONFIG_HISTORY)
+        try:
+            return int(clamp(int(raw), MIN_HISTORY, MAX_HISTORY)) if raw else DEFAULT_HISTORY
+        except ValueError:
+            return DEFAULT_HISTORY
+
+    async def _history(self, message: discord.Message) -> list[tuple[str, str]]:
+        """The conversation leading up to `message`, oldest first.
+
+        People only. The bot's own lines already go along as `recent`, and
+        showing them twice is how old habits (a tally, "[name], …") get copied
+        back in. Other bots are noise — a spelling report is not conversation.
+
+        Any failure returns nothing rather than raising: missing Read Message
+        History must cost the context, not the answer.
+        """
+        cutoff = message.created_at - timedelta(minutes=HISTORY_MINUTES)
+        found: list[tuple[str, str]] = []
+        try:
+            # oldest_first=False explicitly: with `after` set, discord.py
+            # defaults to oldest first, which would return the start of the
+            # window instead of the messages right before the question.
+            async for m in message.channel.history(
+                limit=self.history_size(message.guild.id),
+                before=message,
+                after=cutoff,
+                oldest_first=False,
+            ):
+                if m.author.bot or not m.clean_content.strip():
+                    continue
+                found.append((m.author.display_name, m.clean_content.strip()))
+        except discord.HTTPException:
+            log.warning("Could not read history in %s", message.channel.id)
+            return []
+        found.reverse()
+        return found
 
     def used_today(self, guild_id: int) -> int:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -257,9 +314,12 @@ class AICog(commands.Cog):
         content = message.clean_content.replace(f"@{self.bot.user.display_name}", "").strip()
         recent = self._recent[(gid, "@chat")]
         async with message.channel.typing():
+            history = await self._history(message) if self.history_on(gid) else None
             text, problem = await chat(
                 self.persona(gid),
-                build_chat_prompt(message.author.display_name, content, list(recent)),
+                build_chat_prompt(
+                    message.author.display_name, content, list(recent), history
+                ),
                 self.timeout(gid),
             )
 
@@ -389,9 +449,14 @@ class AICog(commands.Cog):
     @app_commands.describe(
         enabled="Aan betekent dat berichten waarin ze genoemd wordt naar de AI gaan",
         names="Namen waar ze op reageert, gescheiden met |. Bijvoorbeeld: mb|moneybot",
+        history="Ook de vorige berichten in het kanaal meesturen, zodat ze weet waar het over gaat",
     )
     async def chat_cmd(
-        self, interaction: discord.Interaction, enabled: bool, names: str | None = None
+        self,
+        interaction: discord.Interaction,
+        enabled: bool,
+        names: str | None = None,
+        history: bool | None = None,
     ) -> None:
         if enabled and not api_key():
             await interaction.response.send_message(self._no_key(), ephemeral=True)
@@ -403,6 +468,10 @@ class AICog(commands.Cog):
         self.bot.repo.set_config(
             interaction.guild_id, CONFIG_CHAT, "1" if enabled else None
         )
+        if history is not None:
+            self.bot.repo.set_config(
+                interaction.guild_id, CONFIG_CHAT_HISTORY, "1" if history else None
+            )
         if not enabled:
             await interaction.response.send_message(
                 "🛑 Ze reageert niet meer als haar naam valt.", ephemeral=True
@@ -415,10 +484,19 @@ class AICog(commands.Cog):
             "⚠️ Het bericht waarin ze genoemd wordt gaat **wel** naar Anthropic; "
             "anders valt er niets te beantwoorden. Dat staat los van `/ai context`, "
             "dat alleen over triggers gaat.\n"
-            f"_Zelfde dagbudget ({self.budget(interaction.guild_id)}), en per persoon "
+            + (
+                f"⚠️ Gesprekscontext staat **aan**: ook de laatste "
+                f"{self.history_size(interaction.guild_id)} berichten van de afgelopen "
+                f"{HISTORY_MINUTES} minuten gaan mee, van iedereen in het kanaal. "
+                "Uitzetten: `/ai chat enabled:True history:False`.\n"
+                if self.history_on(interaction.guild_id)
+                else "_Gesprekscontext staat uit: ze ziet alleen het bericht zelf. "
+                "Aanzetten: `/ai chat enabled:True history:True`._\n"
+            )
+            + f"_Zelfde dagbudget ({self.budget(interaction.guild_id)}), en per persoon "
             f"hooguit één antwoord per {CHAT_COOLDOWN_SECONDS} seconden._\n"
-            "_Staat er ook een **trigger** op haar naam? Haal die weg, anders "
-            "antwoordt ze twee keer: `/trigger list`._",
+            "_Staat er ook een **trigger** op haar naam, dan zwijgt die trigger "
+            "zodra ze aangesproken wordt; reacties en tellingen lopen gewoon door._",
             ephemeral=True,
         )
 
@@ -520,25 +598,33 @@ class AICog(commands.Cog):
     @app_commands.describe(
         timeout="Seconden wachten op de AI. Daarna de vaste tekst. Standaard 5",
         candidates="Hoeveel woorden uit een bericht beoordeeld mogen worden. Standaard 3",
+        history="Hoeveel eerdere berichten mee als gesprekscontext. Standaard 20",
     )
     async def limits_cmd(
         self,
         interaction: discord.Interaction,
         timeout: app_commands.Range[float, MIN_TIMEOUT, MAX_TIMEOUT] | None = None,
         candidates: app_commands.Range[int, MIN_CANDIDATES, MAX_CANDIDATES] | None = None,
+        history: app_commands.Range[int, MIN_HISTORY, MAX_HISTORY] | None = None,
     ) -> None:
         gid = interaction.guild_id
+        if history is not None:
+            self.bot.repo.set_config(gid, CONFIG_HISTORY, str(history))
         if timeout is not None:
             self.bot.repo.set_config(gid, CONFIG_TIMEOUT, str(round(timeout, 1)))
         if candidates is not None:
             self.bot.repo.set_config(gid, CONFIG_CANDIDATES, str(candidates))
 
-        changed = "✅ Aangepast.\n" if (timeout is not None or candidates is not None) else ""
+        touched = (timeout, candidates, history)
+        changed = "✅ Aangepast.\n" if any(v is not None for v in touched) else ""
         await interaction.response.send_message(
             f"{changed}⏱️ **Limieten**\n"
             f"• Dagbudget: **{self.budget(gid)}** aanroepen _(`/ai budget`)_\n"
             f"• Wachttijd: **{self.timeout(gid):g}** seconden\n"
-            f"• Woorden per bericht: **{self.candidates(gid)}**\n\n"
+            f"• Woorden per bericht: **{self.candidates(gid)}**\n"
+            f"• Gesprekscontext: **{self.history_size(gid)}** berichten, max "
+            f"{HISTORY_MINUTES} min oud ({'aan' if self.history_on(gid) else 'uit'}, "
+            "_`/ai chat history:`_)\n\n"
             "_Wachttijd is hoe lang het kanaal maximaal op de AI wacht; daarna gaat "
             "de vaste tekst eruit. Woorden per bericht begrenst wat één lang bericht "
             "van je dagbudget kan opsouperen._",
@@ -620,12 +706,16 @@ class AICog(commands.Cog):
         chat_line = (
             f"**aan** ({self.chat_names(gid)})" if self.chat_on(gid) else "**uit**"
         )
+        history_line = (
+            f"**aan**, {self.history_size(gid)} berichten" if self.history_on(gid) else "**uit**"
+        )
         await interaction.response.send_message(
             f"🤖 API-sleutel {key}\n"
             f"• Antwoorden schrijven: **{'aan' if self.replies_on(gid) else 'uit'}**\n"
             f"• Omzeiling beoordelen: **{'aan' if self.evasion_on(gid) else 'uit'}** "
             f"voor {watched} trigger(s), {judged} woord(en) beoordeeld\n"
             f"• Reageert op haar naam: {chat_line}\n"
+            f"• Gesprekscontext: {history_line}\n"
             f"• Vandaag gebruikt: **{self.used_today(gid)}** van **{self.budget(gid)}**\n"
             f"• Wachttijd **{self.timeout(gid):g}s** · max **{self.candidates(gid)}** "
             f"woord(en) per bericht _(`/ai limits`)_\n"
