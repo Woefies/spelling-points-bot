@@ -28,14 +28,18 @@ from services.ai import (
     key_shape,
     key_state,
     RECENT_MEMORY,
+    build_chat_prompt,
     build_prompt,
     format_usage,
     generate,
+    chat,
     generate_verbose,
     judge_evasion,
     parse_usage,
 )
 from services.forms import MODAL_MAX
+from services.variants import compile_phrases
+from services.testmode import MARKER, MUTED, TEST, state_for
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +48,8 @@ log = logging.getLogger(__name__)
 # first must not silently get the second.
 CONFIG_REPLIES = "ai_replies"
 CONFIG_EVASION = "ai_evasion"
+CONFIG_CHAT = "ai_chat"
+CONFIG_CHAT_NAMES = "ai_chat_names"
 CONFIG_PERSONA = "ai_persona"
 CONFIG_BUDGET = "ai_budget"
 CONFIG_TIMEOUT = "ai_timeout"
@@ -52,6 +58,10 @@ CONFIG_USAGE = "ai_usage"
 CONFIG_SEND_MESSAGE = "ai_send_message"
 
 RESET = "-"
+
+# One answer per person per minute. The budget is per guild, so without this one
+# person can spend everyone's by holding down the mention key.
+CHAT_COOLDOWN_SECONDS = 60
 
 
 class AICog(commands.Cog):
@@ -64,6 +74,9 @@ class AICog(commands.Cog):
         self._recent: dict[tuple[int, str], deque] = defaultdict(
             lambda: deque(maxlen=RECENT_MEMORY)
         )
+        # When each person last got an answer. The budget is per guild, so
+        # without this one person holding down @MoneyBot spends everybody's.
+        self._last_chat: dict[tuple[int, int], datetime] = {}
         # Logged at load rather than on first use: "is the key even reaching the
         # container?" is the first question every time, and the startup log is
         # the one place someone with shell access is already looking.
@@ -79,6 +92,31 @@ class AICog(commands.Cog):
 
     def evasion_on(self, guild_id: int) -> bool:
         return self.bot.repo.get_config(guild_id, CONFIG_EVASION) == "1"
+
+    def chat_on(self, guild_id: int) -> bool:
+        return self.bot.repo.get_config(guild_id, CONFIG_CHAT) == "1"
+
+    def chat_names(self, guild_id: int) -> str:
+        """Names that count as addressing the bot, besides a real @mention.
+
+        Falls back to the bot's own display name, so switching this on without
+        configuring anything still does the obvious thing.
+        """
+        stored = self.bot.repo.get_config(guild_id, CONFIG_CHAT_NAMES)
+        if stored:
+            return stored
+        return self.bot.user.display_name if self.bot.user else ""
+
+    def _addressed(self, message: discord.Message) -> bool:
+        """Whether this message is talking to the bot rather than near it."""
+        if self.bot.user in message.mentions and not message.mention_everyone:
+            return True
+        names = self.chat_names(message.guild.id)
+        if not names:
+            return False
+        # Same word-boundary matching the triggers use, so "mb" does not fire
+        # inside "combi" and a name is never matched as part of another word.
+        return bool(compile_phrases(names).search(message.content))
 
     def persona(self, guild_id: int) -> str:
         return self.bot.repo.get_config(guild_id, CONFIG_PERSONA) or DEFAULT_PERSONA
@@ -114,7 +152,14 @@ class AICog(commands.Cog):
         used = self.used_today(guild_id)
         self.bot.repo.set_config(guild_id, CONFIG_USAGE, format_usage(today, used + 1))
 
-    async def reply_for(self, guild_id: int, pattern: str, count: int, content: str) -> str | None:
+    async def reply_for(
+        self,
+        guild_id: int,
+        pattern: str,
+        count: int,
+        content: str,
+        author: str | None = None,
+    ) -> str | None:
         """A generated reply, or None so the caller uses its own stored text."""
         if not self.replies_on(guild_id) or not api_key():
             return None
@@ -130,7 +175,11 @@ class AICog(commands.Cog):
         text = await generate(
             self.persona(guild_id),
             build_prompt(
-                pattern, count, content if send_message else None, list(recent)
+                pattern,
+                count,
+                content if send_message else None,
+                list(recent),
+                author if send_message else None,
             ),
             self.timeout(guild_id),
         )
@@ -169,6 +218,65 @@ class AICog(commands.Cog):
         self.bot.repo.set_evasion_verdict(guild_id, pattern, word, verdict)
         log.info("Evasion verdict %s: %r vs %r in guild %s", verdict, word, pattern, guild_id)
         return verdict
+
+    # ----------------------------------------------------------------- chat
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        """Answer when somebody actually addresses the bot.
+
+        Only on a real mention of this bot — not @everyone, not a role, and not
+        the bot's name appearing in a sentence. Being talked *about* is not being
+        talked *to*, and a bot that answers either way cannot be discussed.
+        """
+        if message.author.bot or message.guild is None:
+            return
+        if not self.chat_on(message.guild.id) or not api_key():
+            return
+        if not self._addressed(message):
+            return
+
+        config = self.bot.repo.config_for(message.guild.id)
+        where = state_for(config, message.channel)
+        if where == MUTED:
+            return
+
+        gid, uid = message.guild.id, message.author.id
+        now = datetime.now(timezone.utc)
+        last = self._last_chat.get((gid, uid))
+        if last and (now - last).total_seconds() < CHAT_COOLDOWN_SECONDS:
+            return
+        if self.used_today(gid) >= self.budget(gid):
+            log.info("AI budget spent for guild %s", gid)
+            return
+
+        self._last_chat[(gid, uid)] = now
+        self._spend(gid)
+
+        # The mention itself is noise in the prompt; what is left is the question.
+        content = message.clean_content.replace(f"@{self.bot.user.display_name}", "").strip()
+        recent = self._recent[(gid, "@chat")]
+        async with message.channel.typing():
+            text, problem = await chat(
+                self.persona(gid),
+                build_chat_prompt(message.author.display_name, content, list(recent)),
+                self.timeout(gid),
+            )
+
+        if not text:
+            log.info("No chat answer for %s: %s", message.author, problem)
+            return
+        recent.append(text)
+
+        if where == TEST:
+            text = f"{text}\n{MARKER}"
+        try:
+            # Never pings: this is a reply to someone who is already looking.
+            await message.reply(
+                text, mention_author=False, allowed_mentions=discord.AllowedMentions.none()
+            )
+        except discord.HTTPException:
+            log.warning("Could not answer chat in %s", message.channel.id)
 
     # -------------------------------------------------------------------- commands
 
@@ -277,9 +385,46 @@ class AICog(commands.Cog):
             ephemeral=True,
         )
 
+    @ai.command(name="chat", description="Laat de bot antwoorden zodra haar naam valt")
+    @app_commands.describe(
+        enabled="Aan betekent dat berichten waarin ze genoemd wordt naar de AI gaan",
+        names="Namen waar ze op reageert, gescheiden met |. Bijvoorbeeld: mb|moneybot",
+    )
+    async def chat_cmd(
+        self, interaction: discord.Interaction, enabled: bool, names: str | None = None
+    ) -> None:
+        if enabled and not api_key():
+            await interaction.response.send_message(self._no_key(), ephemeral=True)
+            return
+        if names is not None:
+            self.bot.repo.set_config(
+                interaction.guild_id, CONFIG_CHAT_NAMES, names.strip() or None
+            )
+        self.bot.repo.set_config(
+            interaction.guild_id, CONFIG_CHAT, "1" if enabled else None
+        )
+        if not enabled:
+            await interaction.response.send_message(
+                "🛑 Ze reageert niet meer als haar naam valt.", ephemeral=True
+            )
+            return
+        listening = self.chat_names(interaction.guild_id)
+        await interaction.response.send_message(
+            f"✅ Ze reageert nu spontaan op: {', '.join(f'`{n.strip()}`' for n in listening.split('|') if n.strip())} "
+            "— en op een echte @-vermelding.\n"
+            "⚠️ Het bericht waarin ze genoemd wordt gaat **wel** naar Anthropic; "
+            "anders valt er niets te beantwoorden. Dat staat los van `/ai context`, "
+            "dat alleen over triggers gaat.\n"
+            f"_Zelfde dagbudget ({self.budget(interaction.guild_id)}), en per persoon "
+            f"hooguit één antwoord per {CHAT_COOLDOWN_SECONDS} seconden._\n"
+            "_Staat er ook een **trigger** op haar naam? Haal die weg, anders "
+            "antwoordt ze twee keer: `/trigger list`._",
+            ephemeral=True,
+        )
+
     @ai.command(name="off", description="Zet alle AI-functies in een keer uit")
     async def off_cmd(self, interaction: discord.Interaction) -> None:
-        for key in (CONFIG_REPLIES, CONFIG_EVASION):
+        for key in (CONFIG_REPLIES, CONFIG_EVASION, CONFIG_CHAT):
             self.bot.repo.set_config(interaction.guild_id, key, None)
         await interaction.response.send_message(
             "🛑 Alle AI-functies uit. De bot werkt weer volledig op vaste teksten "
@@ -472,11 +617,15 @@ class AICog(commands.Cog):
             else "alleen het trefwoord"
         judged = len(self.bot.repo.list_evasion_verdicts(gid))
         watched = sum(1 for t in self.bot.repo.list_triggers(gid) if t.watch_evasion)
+        chat_line = (
+            f"**aan** ({self.chat_names(gid)})" if self.chat_on(gid) else "**uit**"
+        )
         await interaction.response.send_message(
             f"🤖 API-sleutel {key}\n"
             f"• Antwoorden schrijven: **{'aan' if self.replies_on(gid) else 'uit'}**\n"
             f"• Omzeiling beoordelen: **{'aan' if self.evasion_on(gid) else 'uit'}** "
             f"voor {watched} trigger(s), {judged} woord(en) beoordeeld\n"
+            f"• Reageert op haar naam: {chat_line}\n"
             f"• Vandaag gebruikt: **{self.used_today(gid)}** van **{self.budget(gid)}**\n"
             f"• Wachttijd **{self.timeout(gid):g}s** · max **{self.candidates(gid)}** "
             f"woord(en) per bericht _(`/ai limits`)_\n"

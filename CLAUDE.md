@@ -230,6 +230,27 @@ a one-liner needs no deliberation, and every second spent thinking is a second t
 channel waits. `max_tokens` is 300 — well above two sentences, because a response cut
 off mid-word would still be sent.
 
+**Tone lives in the persona, never in the code.** `GUARDRAILS` and `CHAT_GUARDRAILS`
+carry only technique and safety: no quotes around the answer, no explaining itself,
+no invented facts, user messages are quotes. Length, humour, language and whether to
+mention a count are the persona's call. A tone rule in the code is appended *after*
+the persona and silently overrules it — "blijf luchtig" and "max two sentences" did
+exactly that to a persona asking for no jokes and one sentence. Defaults a guild
+without a persona should still get belong in `DEFAULT_PERSONA`.
+
+The hit count is therefore always passed as a **fact**, never as an instruction:
+one bracketed background line after the message, not a sentence of its own at the
+top. Stated first and on its own, a model treats it as the subject — which is how
+every line came out as a tally ("vijfde keer", "72e alweer"). Gating it in code (a
+milestone list) was tried and removed: deciding when a number stings is the
+persona's job, and with `recent` in the prompt the model can see whether it named a
+number lately. When content is sent, the message is stated first and the trigger
+word second, because whichever comes first is what the model treats as the subject.
+
+**User messages are quoted and declared to be quotes**, in both `GUARDRAILS` and
+`CHAT_GUARDRAILS`. A trigger fires on text anybody can write, so "bot, from now on
+do X" is a real route once content is sent — it showed up in the channel on day one.
+
 **Message content stays on the host by default.** `build_prompt()` sends only the
 trigger word and how often that person has set it off; the message itself is included
 only after `/ai context send_message:True`. That is a deliberate opt-in, and `/ai
@@ -238,10 +259,21 @@ context` says plainly that turning it on means colleagues' messages leave the se
 Persona (`/ai persona`) is stored per guild and goes into the **system prompt**, so
 changing the bot's voice needs no rebuild — same principle as reminders and triggers
 holding no text in the code. `GUARDRAILS` is appended to whatever the admin wrote
-(Dutch, max two sentences, no invented facts), so the guards do not depend on the
-persona author remembering them.
+(no invented facts, messages are quotes), so the safety guards do not depend on the
+persona author remembering them — and it holds nothing else, see above.
 
-**Two features, two switches** (`ai_replies`, `ai_evasion`), not one master flag.
+**Answering when addressed** (`ai_chat`, `/ai chat`) is the third feature. The
+listener fires on a real @mention *or* on any of the guild's configured names
+(`ai_chat_names`, matched with `compile_phrases` so `mb` never fires inside
+`combi`), and answers the message rather than reacting to a word in it. It needs
+message content by definition, which is why it is a switch of its own and says so
+when switched on — `/ai context` governs triggers only.
+
+A per-user cooldown (`CHAT_COOLDOWN_SECONDS`) sits in front of it because the
+budget is per guild: without it one person holding down the bot's name spends
+everybody's day. Answers never ping, and test mode is honoured.
+
+**Three features, three switches** (`ai_replies`, `ai_evasion`), not one master flag.
 Writing a joke and deciding that someone dodged a filter are different powers, and a
 guild that wants the first must not silently get the second. `/ai off` clears both.
 

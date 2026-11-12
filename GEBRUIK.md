@@ -100,6 +100,7 @@ Anthropic API-sleutel op de host staat.
 |---|---|
 | `/ai replies enabled:True` | Laat de AI trigger-antwoorden schrijven |
 | `/ai evasion enabled:True` | Laat de AI omzeilingen herkennen (ook `watch` per trigger nodig) |
+| `/ai chat enabled:True` | Ze antwoordt zodra haar naam valt |
 | `/ai off` | Zet alle AI-functies in een keer uit |
 | `/ai verdicts` | Toon welke woorden als omzeiling zijn beoordeeld |
 | `/ai forget word:...` | Draai een oordeel terug. Een `-` wist alles |
@@ -142,6 +143,30 @@ en hoeveel keer die persoon het gezegd heeft. De berichten van collega's blijven
 de server. Zet je `/ai context send_message:True` aan, dan wordt het bericht zelf
 meegestuurd naar Anthropic — betere antwoorden, maar berichten verlaten dan wel de
 server. Die keuze is bewust een aparte handeling.
+
+## MB aanspreken
+
+Noem haar naam en ze antwoordt gewoon, zonder commando.
+
+```
+/ai chat enabled: True names: mb|moneybot
+```
+
+Daarna:
+
+```
+Yannick: hoi mb, waarom loopt de sprint altijd uit?
+MB: omdat niemand de helft van wat erin staat ooit heeft ingeschat.
+```
+
+Ze reageert op elke naam uit die lijst, en op een echte @-vermelding. `\b`-grenzen,
+dus `mb` vuurt niet in `combi` of `ambulance`.
+
+**Hiervoor gaat het bericht wél naar Anthropic** — anders valt er niets te
+beantwoorden. Dat staat los van `/ai context`, dat alleen over triggers gaat.
+
+Per persoon hooguit één antwoord per minuut, uit hetzelfde dagbudget. Staat er ook
+een **trigger** op haar naam, haal die dan weg — anders antwoordt ze twee keer.
 
 ## Trigger-omzeiling
 
