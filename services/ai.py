@@ -158,11 +158,10 @@ def build_prompt(
         lines.append(f'Je let op het woord "{pattern.split("|")[0]}".')
     else:
         lines = [f'{who} zei een woord waar jij op let: "{pattern.split("|")[0]}".']
-    if count > 1:
-        # A fact, not an instruction: whether and how often to mention it is the
-        # persona's call. Placed after the message, in brackets, so it reads as
-        # background rather than as the subject.
-        lines.append(f"(achtergrond: {who} heeft dit woord {count} keer gebruikt)")
+    # `count` is deliberately not sent. Every way of offering it — as a sentence,
+    # on milestones only, as bracketed background with a persona saying "almost
+    # never" — ended with the tally in most replies. A model handed a number uses
+    # it. The stored texts still get {count}; only the generated line goes without.
     if recent:
         lines.append("")
         lines.append("Dit zei je hier eerder, herhaal het niet letterlijk:")

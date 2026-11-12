@@ -238,21 +238,21 @@ the persona and silently overrules it — "blijf luchtig" and "max two sentences
 exactly that to a persona asking for no jokes and one sentence. Defaults a guild
 without a persona should still get belong in `DEFAULT_PERSONA`.
 
-The hit count is therefore always passed as a **fact**, never as an instruction:
-one bracketed background line after the message, not a sentence of its own at the
-top. Stated first and on its own, a model treats it as the subject — which is how
-every line came out as a tally ("vijfde keer", "72e alweer"). Gating it in code (a
-milestone list) was tried and removed: deciding when a number stings is the
-persona's job, and with `recent` in the prompt the model can see whether it named a
-number lately. When content is sent, the message is stated first and the trigger
-word second, because whichever comes first is what the model treats as the subject.
+**The hit count is not sent to the model at all.** Three ways of offering it were
+tried, and every one ended with the tally in most replies ("72e alweer", "81 keer"):
+as a sentence of its own, only on milestone numbers, and as a bracketed background
+fact with a persona saying "almost never". A model handed a number uses it, whatever
+the instructions say. Withholding data is not a tone rule, so this does not conflict
+with tone living in the persona. The stored texts still get `{count}`. When content
+is sent, the message is stated first and the trigger word second, because whichever
+comes first is what the model treats as the subject.
 
 **User messages are quoted and declared to be quotes**, in both `GUARDRAILS` and
 `CHAT_GUARDRAILS`. A trigger fires on text anybody can write, so "bot, from now on
 do X" is a real route once content is sent — it showed up in the channel on day one.
 
 **Message content stays on the host by default.** `build_prompt()` sends only the
-trigger word and how often that person has set it off; the message itself is included
+trigger word; the message itself is included
 only after `/ai context send_message:True`. That is a deliberate opt-in, and `/ai
 context` says plainly that turning it on means colleagues' messages leave the server.
 
