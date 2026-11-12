@@ -96,6 +96,15 @@ class AICog(commands.Cog):
     def chat_on(self, guild_id: int) -> bool:
         return self.bot.repo.get_config(guild_id, CONFIG_CHAT) == "1"
 
+    def answers(self, message: discord.Message) -> bool:
+        """Whether the chat listener takes this message.
+
+        Triggers ask this before replying. When the bot's name is also a trigger,
+        both used to answer the same message, and the trigger's line — about the
+        word, with a tally — buried the answer to the actual question.
+        """
+        return self.chat_on(message.guild.id) and bool(api_key()) and self._addressed(message)
+
     def chat_names(self, guild_id: int) -> str:
         """Names that count as addressing the bot, besides a real @mention.
 

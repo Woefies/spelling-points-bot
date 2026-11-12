@@ -269,6 +269,14 @@ listener fires on a real @mention *or* on any of the guild's configured names
 message content by definition, which is why it is a switch of its own and says so
 when switched on — `/ai context` governs triggers only.
 
+**Being addressed beats a trigger.** The bot's name is usually a trigger as well
+(`mb`), so both listeners used to answer one message — and the trigger's line,
+about the word and its tally, buried the answer to the actual question. The
+trigger cog now asks `AICog.answers()` first and skips its *reply* when chat takes
+the message; reactions, hit counts and punishments still run. The cost: when chat
+is on cooldown or out of budget, that message gets no reply at all, which is the
+cooldown doing its job.
+
 A per-user cooldown (`CHAT_COOLDOWN_SECONDS`) sits in front of it because the
 budget is per guild: without it one person holding down the bot's name spends
 everybody's day. Answers never ping, and test mode is honoured.

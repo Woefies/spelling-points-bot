@@ -42,7 +42,11 @@ class TriggersCog(commands.Cog):
             return
         testing = where == TEST
 
-        replied = False
+        # Somebody talking *to* the bot gets an answer from the chat listener, not
+        # a trigger line about a word in their question. Reactions, hit counts
+        # and punishments still run; only the reply stands aside.
+        ai = self.bot.get_cog("AICog")
+        replied = ai is not None and ai.answers(message)
         for trig in self.bot.repo.list_triggers(message.guild.id):
             dodge = None
             if not compile_phrases(trig.pattern).search(message.content):
@@ -77,7 +81,6 @@ class TriggersCog(commands.Cog):
                 # A generated line replaces the stored one only when the AI cog
                 # is loaded, switched on, in budget and actually answers. Every
                 # other path keeps the text above, so the bot never falls silent.
-                ai = self.bot.get_cog("AICog")
                 if ai is not None:
                     generated = await ai.reply_for(
                         message.guild.id,
