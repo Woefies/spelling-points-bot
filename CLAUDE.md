@@ -277,6 +277,26 @@ the message; reactions, hit counts and punishments still run. The cost: when cha
 is on cooldown or out of budget, that message gets no reply at all, which is the
 cooldown doing its job.
 
+**Conversation context is a separate opt-in** (`ai_chat_history`, `/ai chat
+history:True`). It sends the channel's last `history_size()` messages (default 20,
+`/ai limits history:`, 1–100) from the last `HISTORY_MINUTES` to the model, so a
+question like "had je het nog aan yannick gevraagd" is answerable. It is off by
+default because it sends messages from people who never addressed the bot. Three
+choices in `_history()` are deliberate:
+- **Bots are left out, the bot itself included.** Its own lines already go along
+  as `recent`; showing them a second time is how old habits (a tally,
+  "[name], …") get copied back into new answers.
+- **`oldest_first=False` is passed explicitly.** With `after` set, discord.py
+  defaults to oldest-first, which returns the *start* of the time window instead
+  of the messages right before the question.
+- **The question comes last in the prompt, labelled "Hier reageer je op".** The
+  last thing said is what the model answers; with history above it unlabelled,
+  it answers a message from minutes ago.
+
+`limit` counts every message, bots included, so a busy channel yields fewer than
+`history_size()` lines of context. A missing *Read Message History* permission
+costs the context, never the answer.
+
 A per-user cooldown (`CHAT_COOLDOWN_SECONDS`) sits in front of it because the
 budget is per guild: without it one person holding down the bot's name spends
 everybody's day. Answers never ping, and test mode is honoured.
