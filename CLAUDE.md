@@ -230,14 +230,22 @@ a one-liner needs no deliberation, and every second spent thinking is a second t
 channel waits. `max_tokens` is 300 — well above two sentences, because a response cut
 off mid-word would still be sent.
 
-**The hit count is mentioned only on a round number** (`COUNT_MILESTONES`). Handed a
-fresh integer on every single call, a model treats it as the subject — which is how
-every generated line came out being about the tally ("vijfde keer", "zesde keer",
-"verdient bijna een eigen kolom") instead of about what somebody said. The same goes
-for having only one fact at all: with the message withheld there is nothing else to
-talk about, so the one fact gets decorated. When content *is* sent, the message is
-stated first and the trigger word second, because whichever comes first is what the
-model treats as the subject.
+**Tone lives in the persona, never in the code.** `GUARDRAILS` and `CHAT_GUARDRAILS`
+carry only technique and safety: no quotes around the answer, no explaining itself,
+no invented facts, user messages are quotes. Length, humour, language and whether to
+mention a count are the persona's call. A tone rule in the code is appended *after*
+the persona and silently overrules it — "blijf luchtig" and "max two sentences" did
+exactly that to a persona asking for no jokes and one sentence. Defaults a guild
+without a persona should still get belong in `DEFAULT_PERSONA`.
+
+The hit count is therefore always passed as a **fact**, never as an instruction:
+one bracketed background line after the message, not a sentence of its own at the
+top. Stated first and on its own, a model treats it as the subject — which is how
+every line came out as a tally ("vijfde keer", "72e alweer"). Gating it in code (a
+milestone list) was tried and removed: deciding when a number stings is the
+persona's job, and with `recent` in the prompt the model can see whether it named a
+number lately. When content is sent, the message is stated first and the trigger
+word second, because whichever comes first is what the model treats as the subject.
 
 **User messages are quoted and declared to be quotes**, in both `GUARDRAILS` and
 `CHAT_GUARDRAILS`. A trigger fires on text anybody can write, so "bot, from now on
@@ -251,8 +259,8 @@ context` says plainly that turning it on means colleagues' messages leave the se
 Persona (`/ai persona`) is stored per guild and goes into the **system prompt**, so
 changing the bot's voice needs no rebuild — same principle as reminders and triggers
 holding no text in the code. `GUARDRAILS` is appended to whatever the admin wrote
-(Dutch, max two sentences, no invented facts), so the guards do not depend on the
-persona author remembering them.
+(no invented facts, messages are quotes), so the safety guards do not depend on the
+persona author remembering them — and it holds nothing else, see above.
 
 **Answering when addressed** (`ai_chat`, `/ai chat`) is the third feature. The
 listener fires on a real @mention *or* on any of the guild's configured names
